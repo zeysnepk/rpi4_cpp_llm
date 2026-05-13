@@ -1,0 +1,108 @@
+# ============================================
+# C++ / CMake Build Artifacts
+# ============================================
+build/
+build-*/
+out/
+cmake-build-*/
+CMakeCache.txt
+CMakeFiles/
+CMakeScripts/
+cmake_install.cmake
+install_manifest.txt
+Makefile
+*.cmake
+!CMakeLists.txt
+
+# Object files & libraries
+*.o
+*.obj
+*.a
+*.lib
+*.so
+*.so.*
+*.dylib
+*.dll
+*.exe
+*.out
+*.app
+
+# Debug files
+*.dSYM/
+*.su
+*.idb
+*.pdb
+*.gch
+*.pch
+
+# ============================================
+# Python (venv için)
+# ============================================
+venv/
+.venv/
+env/
+ENV/
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# ============================================
+# LLM Modelleri (ÇOK ÖNEMLİ - GitHub 100MB limiti)
+# ============================================
+models/
+*.gguf
+*.bin
+*.safetensors
+*.pt
+*.pth
+*.onnx
+*.ggml
+
+# llama.cpp klonu (eğer alt klasör olarak eklenirse)
+llama.cpp/
+
+# ============================================
+# IDE / Editor
+# ============================================
+.vscode/
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+*.sublime-project
+*.sublime-workspace
+
+# ============================================
+# Loglar ve Geçici Dosyalar
+# ============================================
+*.log
+*.tmp
+*.bak
+*.orig
+logs/
+output/
+*.txt.bak
+
+# ============================================
+# Ortam dosyaları (varsa)
+# ============================================
+.env
+.env.local
+*.secret
+
+# ============================================
+# Compile commands (clangd/CCLS için lokal)
+# ============================================
+compile_commands.json
+.cache/
+.clangd/
