@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>RPi4 Sensör Asistanı</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <div class="title">
+                <span class="logo">🤖</span>
+                <h1>RPi4 Sensör Asistanı</h1>
+            </div>
+            <div class="status" id="status">
+                <span class="dot"></span>
+                <span class="label">bağlanıyor...</span>
+            </div>
+        </header>
+
+        <main id="chat" class="chat">
+            <div class="message assistant">
+                <div class="bubble">
+                    Merhaba! Lokal LLM hazır. Sensörler henüz bağlı değil, şimdilik sohbet edebiliriz.
+                </div>
+            </div>
+        </main>
+
+        <form id="form" class="composer">
+            <textarea id="input" placeholder="Mesajınızı yazın... (Enter: gönder, Shift+Enter: yeni satır)" rows="1"></textarea>
+            <button type="submit" id="send">Gönder</button>
+        </form>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>

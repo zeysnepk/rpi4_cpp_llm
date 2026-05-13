@@ -43,6 +43,7 @@ venv/
 env/
 ENV/
 __pycache__/
+*.pyc
 *.py[cod]
 *$py.class
 *.egg-info/
@@ -106,3 +107,10 @@ output/
 compile_commands.json
 .cache/
 .clangd/
+
+# ============================================
+# Gradio
+# ============================================
+.gradio/
+flagged/
+gradio_cached_examples/
