@@ -12,4 +12,5 @@ public:
 private:
     I2CBus& bus_;
     uint8_t addr_;
+    uint8_t chip_id_ = 0;
 };
