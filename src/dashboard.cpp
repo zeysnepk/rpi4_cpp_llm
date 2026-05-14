@@ -63,6 +63,28 @@ int main() {
         res.set_content(sensors.latest_all().dump(), "application/json");
     });
 
+    server.Get("/api/sensors/stream", [&sensors](const httplib::Request&,
+                                                 httplib::Response& res) {
+        res.set_header("Cache-Control", "no-cache");
+        res.set_header("X-Accel-Buffering", "no");
+        res.set_chunked_content_provider("text/event-stream",
+            [&sensors](size_t, httplib::DataSink& sink) -> bool {
+                // Ilk olarak retry hint gonder (baglanti koparsa ne kadar bekleyip donulecek)
+                std::string hello = ": connected\nretry: 2000\n\n";
+                if (!sink.write(hello.data(), hello.size())) return true;
+
+                // Surekli push - client disconnect ettiginde is_writable false doner
+                while (sink.is_writable()) {
+                    auto data = sensors.latest_all();
+                    std::string msg = "data: " + data.dump() + "\n\n";
+                    if (!sink.write(msg.data(), msg.size())) break;
+                    std::this_thread::sleep_for(std::chrono::milliseconds(200));  // 5 Hz
+                }
+                sink.done();
+                return true;
+            });
+    });
+
     server.Get("/api/sensors/history", [&sensors](const httplib::Request& req,
                                                   httplib::Response& res) {
         std::string name = req.get_param_value("sensor");
