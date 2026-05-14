@@ -90,16 +90,33 @@ int main() {
             {"cache_prompt", true}
         };
         const std::string payload_str = payload.dump();
+
         res.set_chunked_content_provider("text/event-stream",
-            [payload_str](size_t, httplib::DataSink& sink) {
+            [payload_str](size_t, httplib::DataSink& sink) -> bool {
                 httplib::Client cli(LLAMA_HOST, LLAMA_PORT);
                 cli.set_read_timeout(std::chrono::seconds(600));
-                cli.Post("/v1/chat/completions",
-                         {{"Accept","text/event-stream"}},
-                         payload_str, "application/json",
-                         [&sink](const char* data, size_t len) {
-                             return sink.write(data, len);
-                         });
+                cli.set_write_timeout(std::chrono::seconds(60));
+
+                // Manuel Request: streaming response icin tek temiz yol
+                httplib::Request rq;
+                rq.method = "POST";
+                rq.path   = "/v1/chat/completions";
+                rq.headers.emplace("Content-Type", "application/json");
+                rq.headers.emplace("Accept",       "text/event-stream");
+                rq.body   = payload_str;
+
+                // llama-server'dan gelen her chunk'i tarayiciya ilet
+                rq.content_receiver = [&sink](const char* data, size_t len,
+                                              uint64_t /*off*/, uint64_t /*tot*/) -> bool {
+                    return sink.write(data, len);
+                };
+
+                auto result = cli.send(rq);
+                if (!result) {
+                    std::string err = "data: {\"error\":\"llama-server unreachable on "
+                                      "port 8080\"}\n\n";
+                    sink.write(err.data(), err.size());
+                }
                 sink.done();
                 return true;
             });
