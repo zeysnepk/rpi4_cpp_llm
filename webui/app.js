@@ -12,6 +12,16 @@ const SYSTEM_PROMPT = "Sen yardımcı, net ve doğru bilgi veren bir Türkçe as
 
 const history = [];
 
+let scrollPending = false;
+function scheduleScroll() {
+    if (scrollPending) return;
+    scrollPending = true;
+    requestAnimationFrame(() => {
+        scrollPending = false;
+        chat.scrollTop = chat.scrollHeight;
+    });
+}
+
 function setStatus(state, label) {
     statusEl.classList.remove('ok', 'err');
     if (state) statusEl.classList.add(state);
@@ -80,7 +90,7 @@ async function sendMessage(text) {
                         if (first) { bubble.textContent = ''; first = false; }
                         text += delta;
                         bubble.textContent = text;
-                        chat.scrollTop = chat.scrollHeight;
+                        scheduleScroll();
                     }
                 } catch { /* ignore */ }
             }
@@ -137,127 +147,51 @@ function renderReadings(card, data) {
 }
 
 // ============================================================
-// GRAFIKLER (Chart.js)
+// GRAFIKLER - Web Worker'a delege edildi (ayri thread)
 // ============================================================
-const MAX_POINTS = 300;
-const charts = {};
-let latestSensors = null;   // pollSensors'in son cektigi veri
-
-function commonOptions(yTitle, dualAxis = false, y1Title = '', extra = {}) {
-    const scales = {
-        x: {
-            ticks: { color: '#6e7681', font: { size: 9 }, maxTicksLimit: 8 },
-            grid: { color: 'rgba(48,54,61,0.4)' }
-        },
-        y: {
-            position: 'left',
-            ticks: { color: '#8b949e', font: { size: 10 } },
-            title: { display: !!yTitle, text: yTitle, color: '#8b949e', font: { size: 10 } },
-            grid: { color: 'rgba(48,54,61,0.4)' }
-        }
-    };
-    if (dualAxis) {
-        scales.y1 = {
-            position: 'right',
-            ticks: { color: '#8b949e', font: { size: 10 } },
-            title: { display: !!y1Title, text: y1Title, color: '#8b949e', font: { size: 10 } },
-            grid: { drawOnChartArea: false }
-        };
-    }
-    // ekstra eksenleri (BME pressure gibi) merge et
-    Object.assign(scales, extra);
-    return {
-        responsive: true,
-        maintainAspectRatio: false,
-        animation: false,
-        interaction: { intersect: false, mode: 'index' },
-        scales,
-        plugins: {
-            legend: {
-                labels: { color: '#c9d1d9', font: { size: 10 }, boxWidth: 12, padding: 8 },
-                position: 'top',
-                align: 'end'
-            },
-            tooltip: { backgroundColor: '#21262d', titleColor: '#c9d1d9', bodyColor: '#c9d1d9' }
-        }
-    };
-}
-
-function lineDataset(label, color, yAxisID = 'y', hidden = false) {
-    return {
-        label, data: [], borderColor: color, backgroundColor: color + '20',
-        borderWidth: 1.5, tension: 0.25, pointRadius: 0, yAxisID, hidden
-    };
-}
+const chartWorker = new Worker('chart-worker.js');
 
 function initCharts() {
-    // BME280: temp (sol °C), humidity (sag %), pressure (gizli, legend'dan acilir)
-    charts.bme280 = new Chart(document.getElementById('chart-bme280'), {
-        type: 'line',
-        data: {
-            labels: [],
-            datasets: [
-                lineDataset('Sıcaklık (°C)',  '#f97316', 'y'),
-                lineDataset('Nem (%)',         '#06b6d4', 'y1'),
-                lineDataset('Basınç (hPa)',    '#a78bfa', 'yP', true)  // hidden by default
-            ]
-        },
-        options: commonOptions('°C', true, '%', {
-            yP: { display: false, position: 'right' }
-        })
-    });
-
-    // MPU6500: ivme XYZ (sol g) + |gyro| (sag dps)
-    charts.mpu6050 = new Chart(document.getElementById('chart-mpu6050'), {
-        type: 'line',
-        data: {
-            labels: [],
-            datasets: [
-                lineDataset('aX (g)',  '#ef4444', 'y'),
-                lineDataset('aY (g)',  '#22c55e', 'y'),
-                lineDataset('aZ (g)',  '#3b82f6', 'y'),
-                lineDataset('|gyro| (°/s)', '#f59e0b', 'y1')
-            ]
-        },
-        options: commonOptions('g', true, '°/s')
-    });
-
-    // QMC5883L: mag XYZ (sol G) + heading (sag °)
-    charts.qmc5883l = new Chart(document.getElementById('chart-qmc5883l'), {
-        type: 'line',
-        data: {
-            labels: [],
-            datasets: [
-                lineDataset('mX (G)',  '#ef4444', 'y'),
-                lineDataset('mY (G)',  '#22c55e', 'y'),
-                lineDataset('mZ (G)',  '#3b82f6', 'y'),
-                lineDataset('Heading (°)', '#f59e0b', 'y1')
-            ]
-        },
-        options: commonOptions('G', true, '°')
+    // Kanvasin gercek pixel boyutunu ayarla, sonra worker'a transfer et
+    requestAnimationFrame(() => {
+        for (const name of ['bme280', 'mpu6050', 'qmc5883l']) {
+            const canvas = document.getElementById('chart-' + name);
+            const wrap = canvas.parentElement;
+            const w = wrap.clientWidth  || 600;
+            const h = wrap.clientHeight || 200;
+            canvas.width = w;
+            canvas.height = h;
+            const off = canvas.transferControlToOffscreen();
+            chartWorker.postMessage({ type: 'init', name, canvas: off }, [off]);
+        }
     });
 }
 
-function pushPoint(chartName, label, values) {
-    const c = charts[chartName];
-    if (!c) return;
-    c.data.labels.push(label);
-    c.data.datasets.forEach((ds, i) => ds.data.push(values[i]));
-    while (c.data.labels.length > MAX_POINTS) {
-        c.data.labels.shift();
-        c.data.datasets.forEach(ds => ds.data.shift());
-    }
-    c.update('none');
+function pushPoint(name, label, values) {
+    chartWorker.postMessage({ type: 'update', name, label, values });
 }
+
+// Window resize -> worker'a bildir
+let resizeTimer = null;
+window.addEventListener('resize', () => {
+    clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(() => {
+        for (const name of ['bme280', 'mpu6050', 'qmc5883l']) {
+            const wrap = document.getElementById('chart-' + name).parentElement;
+            chartWorker.postMessage({
+                type: 'resize', name,
+                width:  wrap.clientWidth,
+                height: wrap.clientHeight
+            });
+        }
+    }, 150);
+});
 
 function timeLabel() {
     const t = new Date();
     return `${String(t.getMinutes()).padStart(2,'0')}:${String(t.getSeconds()).padStart(2,'0')}`;
 }
-
-function gyroMag(g) {
-    return Math.sqrt(g.x*g.x + g.y*g.y + g.z*g.z);
-}
+function gyroMag(g) { return Math.sqrt(g.x*g.x + g.y*g.y + g.z*g.z); }
 
 // ============================================================
 // SENSOR STREAM (SSE - server push)
@@ -288,27 +222,20 @@ function updateCards(all) {
 // rAF browser'in refresh rate'ine (60 Hz) hizalar, akici gorunur
 let chartUpdatePending = false;
 function scheduleChartUpdate() {
-    if (chartUpdatePending || !latestSensors) return;
-    chartUpdatePending = true;
-    requestAnimationFrame(() => {
-        chartUpdatePending = false;
-        if (!latestSensors) return;
-        const label = timeLabel();
-        for (const [name, info] of Object.entries(latestSensors)) {
-            if (!info?.online || !info.data) continue;
-            const d = info.data;
-            if (name === 'bme280') {
-                pushPoint('bme280', label,
-                    [d.temperature_c, d.humidity_pct, d.pressure_hpa]);
-            } else if (name === 'mpu6050') {
-                pushPoint('mpu6050', label,
-                    [d.accel_g.x, d.accel_g.y, d.accel_g.z, gyroMag(d.gyro_dps)]);
-            } else if (name === 'qmc5883l') {
-                pushPoint('qmc5883l', label,
-                    [d.mag_g.x, d.mag_g.y, d.mag_g.z, d.heading_deg]);
-            }
+    if (!latestSensors) return;
+    const label = timeLabel();
+    for (const [name, info] of Object.entries(latestSensors)) {
+        if (!info?.online || !info.data) continue;
+        const d = info.data;
+        if (name === 'bme280') {
+            pushPoint('bme280', label, [d.temperature_c, d.humidity_pct, d.pressure_hpa]);
+        } else if (name === 'mpu6050') {
+            pushPoint('mpu6050', label,
+                [d.accel_g.x, d.accel_g.y, d.accel_g.z, gyroMag(d.gyro_dps)]);
+        } else if (name === 'qmc5883l') {
+            pushPoint('qmc5883l', label, [d.mag_g.x, d.mag_g.y, d.mag_g.z, d.heading_deg]);
         }
-    });
+    }
 }
 
 function startSensorStream() {
