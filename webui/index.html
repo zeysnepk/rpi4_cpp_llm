@@ -19,47 +19,82 @@
             </div>
         </header>
 
-        <section id="sensors" class="sensors">
-            <div class="sensor-card" data-name="bme280">
-                <header>
-                    <span class="dot"></span>
-                    <h2>BME280</h2>
-                    <span class="rate"></span>
-                </header>
-                <div class="readings">Bekleniyor...</div>
-            </div>
-            <div class="sensor-card" data-name="mpu6050">
-                <header>
-                    <span class="dot"></span>
-                    <h2>MPU6050</h2>
-                    <span class="rate"></span>
-                </header>
-                <div class="readings">Bekleniyor...</div>
-            </div>
-            <div class="sensor-card" data-name="qmc5883l">
-                <header>
-                    <span class="dot"></span>
-                    <h2>QMC5883L</h2>
-                    <span class="rate"></span>
-                </header>
-                <div class="readings">Bekleniyor...</div>
-            </div>
-        </section>
-
-        <main id="chat" class="chat">
-            <div class="message assistant">
-                <div class="bubble">
-                    Merhaba! Lokal LLM hazır. Sensörler henüz bağlı değil, şimdilik sohbet edebiliriz.
+        <div class="main-grid">
+            <!-- SOL KOLON: Sensörler + Grafikler -->
+            <section class="left-column">
+                <!-- Sensor kart satiri -->
+                <div id="sensors" class="sensors">
+                    <div class="sensor-card" data-name="bme280">
+                        <header>
+                            <span class="dot"></span>
+                            <h2>BME280</h2>
+                            <span class="rate"></span>
+                        </header>
+                        <div class="readings">Bekleniyor...</div>
+                    </div>
+                    <div class="sensor-card" data-name="mpu6050">
+                        <header>
+                            <span class="dot"></span>
+                            <h2>MPU6500</h2>
+                            <span class="rate"></span>
+                        </header>
+                        <div class="readings">Bekleniyor...</div>
+                    </div>
+                    <div class="sensor-card" data-name="qmc5883l">
+                        <header>
+                            <span class="dot"></span>
+                            <h2>QMC5883L</h2>
+                            <span class="rate"></span>
+                        </header>
+                        <div class="readings">Bekleniyor...</div>
+                    </div>
                 </div>
-            </div>
-        </main>
 
-        <form id="form" class="composer">
-            <textarea id="input" placeholder="Mesajınızı yazın... (Enter: gönder, Shift+Enter: yeni satır)" rows="1"></textarea>
-            <button type="submit" id="send">Gönder</button>
-        </form>
+                <!-- Sensor grafikleri (her biri ayri satir) -->
+                <div class="chart-card">
+                    <header>
+                        <h3>BME280 — Çevre Verisi</h3>
+                        <span class="hint">son 60 saniye</span>
+                    </header>
+                    <div class="chart-wrap"><canvas id="chart-bme280"></canvas></div>
+                </div>
+
+                <div class="chart-card">
+                    <header>
+                        <h3>MPU6500 — İvme (g) & Açısal Hız (°/s)</h3>
+                        <span class="hint">son 60 saniye</span>
+                    </header>
+                    <div class="chart-wrap"><canvas id="chart-mpu6050"></canvas></div>
+                </div>
+
+                <div class="chart-card">
+                    <header>
+                        <h3>QMC5883L — Manyetik Alan (Gauss) & Heading</h3>
+                        <span class="hint">son 60 saniye</span>
+                    </header>
+                    <div class="chart-wrap"><canvas id="chart-qmc5883l"></canvas></div>
+                </div>
+            </section>
+
+            <!-- SAG KOLON: Chat -->
+            <section class="right-column">
+                <main id="chat" class="chat">
+                    <div class="message assistant">
+                        <div class="bubble">
+                            Merhaba! Sensörler aktif, sohbet edebiliriz. Veriler hakkında soru sorabilirsin.
+                        </div>
+                    </div>
+                </main>
+
+                <form id="form" class="composer">
+                    <textarea id="input" placeholder="Mesajınızı yazın..." rows="1"></textarea>
+                    <button type="submit" id="send">Gönder</button>
+                </form>
+            </section>
+        </div>
     </div>
 
+    <script src="chart.umd.min.js"></script>
     <script src="app.js"></script>
 </body>
 </html>
