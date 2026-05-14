@@ -106,6 +106,28 @@ button {
 button:hover:not(:disabled) { background: #3fb950; }
 button:disabled { background: var(--panel-2); color: var(--text-dim); cursor: not-allowed; }
 
+.sensors {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 12px;
+    margin-bottom: 14px;
+}
+.sensor-card {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 12px 14px;
+}
+.sensor-card header { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+.sensor-card h2 { font-size: 13px; font-weight: 600; flex: 1; }
+.sensor-card .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--text-dim); }
+.sensor-card.online .dot { background: var(--ok); }
+.sensor-card.offline .dot { background: var(--err); }
+.sensor-card .rate { font-size: 11px; color: var(--text-dim); }
+.sensor-card .readings { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 12px; line-height: 1.6; color: var(--text-dim); }
+.sensor-card .readings .k { color: var(--text); }
+.sensor-card .readings .v { color: var(--ok); }
+
 /* mobil */
 @media (max-width: 600px) {
     .container { padding: 8px; height: 100dvh; }

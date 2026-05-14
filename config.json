@@ -5,8 +5,14 @@
     "max_tokens": 512
   },
   "sensors": {
-    "bme280":   { "enabled": false, "sample_rate_hz": 1,  "i2c_address": "0x76" },
-    "mpu6050":  { "enabled": false, "sample_rate_hz": 50, "i2c_address": "0x68" },
-    "qmc5883l": { "enabled": false, "sample_rate_hz": 20, "i2c_address": "0x0D" }
+    "power_pin": {
+      "chip": "gpiochip0",
+      "bcm": 13,
+      "active_high": true,
+      "settle_ms": 250
+    },
+    "bme280":   { "enabled": true, "sample_rate_hz": 1,  "i2c_address": "0x76" },
+    "mpu6050":  { "enabled": true, "sample_rate_hz": 50, "i2c_address": "0x68" },
+    "qmc5883l": { "enabled": true, "sample_rate_hz": 10, "i2c_address": "0x0D" }
   }
 }

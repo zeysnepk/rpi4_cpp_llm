@@ -116,3 +116,53 @@ input.addEventListener('input', () => {
 checkHealth();
 setInterval(checkHealth, 10000);
 input.focus();
+
+// --- Sensor paneli ---
+function fmt(n, digits=2) {
+    if (typeof n !== 'number') return String(n);
+    return n.toFixed(digits);
+}
+
+function renderReadings(card, data) {
+    const lines = [];
+    const walk = (obj, prefix='') => {
+        for (const k in obj) {
+            const v = obj[k];
+            if (v !== null && typeof v === 'object') {
+                walk(v, prefix + k + '.');
+            } else {
+                lines.push(`<span class="k">${prefix}${k}:</span> <span class="v">${fmt(v)}</span>`);
+            }
+        }
+    };
+    walk(data);
+    card.querySelector('.readings').innerHTML = lines.join('<br>');
+}
+
+async function pollSensors() {
+    try {
+        const r = await fetch('/api/sensors');
+        if (!r.ok) return;
+        const all = await r.json();
+        document.querySelectorAll('.sensor-card').forEach(card => {
+            const name = card.dataset.name;
+            const info = all[name];
+            if (!info) {
+                card.classList.remove('online'); card.classList.add('offline');
+                card.querySelector('.readings').textContent = 'Yapılandırılmamış';
+                return;
+            }
+            card.querySelector('.rate').textContent = info.rate_hz ? `${info.rate_hz} Hz` : '';
+            if (info.online && info.data) {
+                card.classList.add('online'); card.classList.remove('offline');
+                renderReadings(card, info.data);
+            } else {
+                card.classList.remove('online'); card.classList.add('offline');
+                card.querySelector('.readings').textContent = 'Offline';
+            }
+        });
+    } catch { /* ignore */ }
+}
+
+setInterval(pollSensors, 1000);
+pollSensors();
