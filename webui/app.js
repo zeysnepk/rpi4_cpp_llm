@@ -141,8 +141,9 @@ function renderReadings(card, data) {
 // ============================================================
 const MAX_POINTS = 60;
 const charts = {};
+let latestSensors = null;   // pollSensors'in son cektigi veri
 
-function commonOptions(yTitle, dualAxis = false, y1Title = '') {
+function commonOptions(yTitle, dualAxis = false, y1Title = '', extra = {}) {
     const scales = {
         x: {
             ticks: { color: '#6e7681', font: { size: 9 }, maxTicksLimit: 8 },
@@ -163,6 +164,8 @@ function commonOptions(yTitle, dualAxis = false, y1Title = '') {
             grid: { drawOnChartArea: false }
         };
     }
+    // ekstra eksenleri (BME pressure gibi) merge et
+    Object.assign(scales, extra);
     return {
         responsive: true,
         maintainAspectRatio: false,
@@ -180,15 +183,15 @@ function commonOptions(yTitle, dualAxis = false, y1Title = '') {
     };
 }
 
-function lineDataset(label, color, yAxisID = 'y') {
+function lineDataset(label, color, yAxisID = 'y', hidden = false) {
     return {
         label, data: [], borderColor: color, backgroundColor: color + '20',
-        borderWidth: 1.5, tension: 0.25, pointRadius: 0, yAxisID
+        borderWidth: 1.5, tension: 0.25, pointRadius: 0, yAxisID, hidden
     };
 }
 
 function initCharts() {
-    // BME280: temp/humidity ayri eksen, pressure ayri (3 eksen yerine 2 + gizli)
+    // BME280: temp (sol °C), humidity (sag %), pressure (gizli, legend'dan acilir)
     charts.bme280 = new Chart(document.getElementById('chart-bme280'), {
         type: 'line',
         data: {
@@ -196,13 +199,15 @@ function initCharts() {
             datasets: [
                 lineDataset('Sıcaklık (°C)',  '#f97316', 'y'),
                 lineDataset('Nem (%)',         '#06b6d4', 'y1'),
-                lineDataset('Basınç (hPa)',    '#a78bfa', 'y')
+                lineDataset('Basınç (hPa)',    '#a78bfa', 'yP', true)  // hidden by default
             ]
         },
-        options: commonOptions('°C / hPa', true, '%')
+        options: commonOptions('°C', true, '%', {
+            yP: { display: false, position: 'right' }
+        })
     });
 
-    // MPU6500: ivme 3 eksen (sol y, g birimi) + gyro magnitude (sag y1, dps)
+    // MPU6500: ivme XYZ (sol g) + |gyro| (sag dps)
     charts.mpu6050 = new Chart(document.getElementById('chart-mpu6050'), {
         type: 'line',
         data: {
@@ -217,7 +222,7 @@ function initCharts() {
         options: commonOptions('g', true, '°/s')
     });
 
-    // QMC5883L: mag 3 eksen (sol y, G) + heading (sag y1, derece)
+    // QMC5883L: mag XYZ (sol G) + heading (sag °)
     charts.qmc5883l = new Chart(document.getElementById('chart-qmc5883l'), {
         type: 'line',
         data: {
@@ -245,8 +250,8 @@ function pushPoint(chartName, label, values) {
     c.update('none');
 }
 
-function timeLabel(ms) {
-    const t = new Date(ms || Date.now());
+function timeLabel() {
+    const t = new Date();
     return `${String(t.getMinutes()).padStart(2,'0')}:${String(t.getSeconds()).padStart(2,'0')}`;
 }
 
@@ -255,48 +260,54 @@ function gyroMag(g) {
 }
 
 // ============================================================
-// SENSOR POLLING (kart + grafik birlikte)
+// SENSOR POLLING - iki ayri ritim
 // ============================================================
+
+// 1 Hz: sadece kartlari guncelle (hafif: text DOM)
 async function pollSensors() {
     try {
         const r = await fetch('/api/sensors');
         if (!r.ok) return;
-        const all = await r.json();
-        const label = timeLabel();
+        latestSensors = await r.json();
 
         document.querySelectorAll('.sensor-card').forEach(card => {
             const name = card.dataset.name;
-            const info = all[name];
-
+            const info = latestSensors[name];
             if (!info) {
                 card.classList.remove('online'); card.classList.add('offline');
                 card.querySelector('.readings').textContent = 'Yapılandırılmamış';
                 return;
             }
             card.querySelector('.rate').textContent = info.rate_hz ? `${info.rate_hz} Hz` : '';
-
             if (info.online && info.data) {
                 card.classList.add('online'); card.classList.remove('offline');
                 renderReadings(card, info.data);
-
-                // Grafige veri ekle
-                const d = info.data;
-                if (name === 'bme280') {
-                    pushPoint('bme280', label,
-                        [d.temperature_c, d.humidity_pct, d.pressure_hpa]);
-                } else if (name === 'mpu6050') {
-                    pushPoint('mpu6050', label,
-                        [d.accel_g.x, d.accel_g.y, d.accel_g.z, gyroMag(d.gyro_dps)]);
-                } else if (name === 'qmc5883l') {
-                    pushPoint('qmc5883l', label,
-                        [d.mag_g.x, d.mag_g.y, d.mag_g.z, d.heading_deg]);
-                }
             } else {
                 card.classList.remove('online'); card.classList.add('offline');
                 card.querySelector('.readings').textContent = 'Offline';
             }
         });
     } catch { /* ignore */ }
+}
+
+// 0.5 Hz: grafikleri guncelle (agir: canvas redraw)
+function updateCharts() {
+    if (!latestSensors) return;
+    const label = timeLabel();
+    for (const [name, info] of Object.entries(latestSensors)) {
+        if (!info?.online || !info.data) continue;
+        const d = info.data;
+        if (name === 'bme280') {
+            pushPoint('bme280', label,
+                [d.temperature_c, d.humidity_pct, d.pressure_hpa]);
+        } else if (name === 'mpu6050') {
+            pushPoint('mpu6050', label,
+                [d.accel_g.x, d.accel_g.y, d.accel_g.z, gyroMag(d.gyro_dps)]);
+        } else if (name === 'qmc5883l') {
+            pushPoint('qmc5883l', label,
+                [d.mag_g.x, d.mag_g.y, d.mag_g.z, d.heading_deg]);
+        }
+    }
 }
 
 // ============================================================
@@ -307,6 +318,7 @@ window.addEventListener('DOMContentLoaded', () => {
     checkHealth();
     setInterval(checkHealth, 10000);
     pollSensors();
-    setInterval(pollSensors, 1000);
+    setInterval(pollSensors, 1000);   // kart: 1 Hz
+    setInterval(updateCharts, 2000);  // grafik: 0.5 Hz
     input.focus();
 });
