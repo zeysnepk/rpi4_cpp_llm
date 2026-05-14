@@ -32,6 +32,5 @@ target_include_directories(dashboard PRIVATE
 
 target_link_libraries(dashboard PRIVATE
     Threads::Threads
-    i2c
     ${GPIOD_LIB}                  # <-- YENI
 )
