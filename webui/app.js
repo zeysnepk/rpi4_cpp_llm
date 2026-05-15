@@ -243,6 +243,7 @@ function startSensorStream() {
     sse = new EventSource('/api/sensors/stream');
 
     sse.onmessage = (event) => {
+        console.log('[SSE]', new Date().toISOString().slice(11,23));
         try {
             latestSensors = JSON.parse(event.data);
             updateCards(latestSensors);
