@@ -270,5 +270,12 @@ window.addEventListener('DOMContentLoaded', () => {
     checkHealth();
     setInterval(checkHealth, 10000);
     startSensorStream();   
+
+    // Guvenlik agi: SSE gecikirse bile son veriden chart'i besle (1 Hz)
+    setInterval(() => {
+        if (latestSensors) scheduleChartUpdate();
+    }, 1000);
+
+
     input.focus();
 });
