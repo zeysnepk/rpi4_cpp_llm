@@ -149,6 +149,10 @@ async function sendMessage(text) {
                     bubble.parentElement.classList.add('error');
                     bubble.textContent = `Hata: ${ev.message}`;
                 }
+                else if (ev.type === 'translation_in') {
+                    // Console'a logla (kullanıcıya gösterme)
+                    console.log(`[Çeviri] TR: "${ev.tr}" → EN: "${ev.en}"`);
+                }
             }
         }
 

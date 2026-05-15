@@ -8,14 +8,10 @@
 # Llama-3.2-3B-Instruct-Q4_K_M.gguf
 
 ~/llama.cpp/build/bin/llama-server \
-  -m ~/models/qwen2.5-1.5b-instruct-q4_k_m.gguf \
-  --host 127.0.0.1 \
-  --port 8080 \
-  -t 3 \
-  -c 4096 \
-  -b 256 \
+  -m ~/models/Hermes-3-Llama-3.2-3B.Q4_K_M.gguf \
+  --host 127.0.0.1 --port 8080 \
+  -t 3 -c 4096 -b 256 \
   --jinja \
   --mlock \
-  --cache-type-k q8_0 \
-  --cache-type-v q8_0 \
+  --cache-type-k q8_0 --cache-type-v q8_0 \
   -ngl 0
