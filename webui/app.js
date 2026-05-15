@@ -7,8 +7,12 @@ const input = document.getElementById('input');
 const sendBtn = document.getElementById('send');
 const statusEl = document.getElementById('status');
 
-const SYSTEM_PROMPT = "Sen yardımcı, net ve doğru bilgi veren bir Türkçe asistansın. " +
-                      "Sensör verilerini yorumlayabilir, kısa ve öz cevap verirsin.";
+const SYSTEM_PROMPT =
+    "Sen RPi4 üzerinde çalışan bir sensör asistanısın. " +
+    "Kullanıcı sensör verisi sorduğunda get_current veya get_history_stats araçlarını kullan. " +
+    "Örnekleme hızı değişikliklerinde set_sample_rate kullan. " +
+    "Veriyi yorumla, sayıları sade Türkçe ile aç. Veri yoksa uydurma. " +
+    "Selamlamalarda araç çağırma, sadece sohbet et.";
 
 const history = [];
 
@@ -53,10 +57,13 @@ async function checkHealth() {
 async function sendMessage(text) {
     addMessage('user', text);
     const bubble = addMessage('assistant', '');
-    bubble.textContent = '...';
+    bubble.textContent = '⏳ düşünüyor...';
 
     history.push({ role: 'user', content: text });
     const messages = [{ role: 'system', content: SYSTEM_PROMPT }, ...history];
+
+    let toolBlock = null;   // tool call'lar icin alt panel
+    let finalText = '';
 
     try {
         const response = await fetch('/api/chat', {
@@ -69,8 +76,6 @@ async function sendMessage(text) {
         const reader = response.body.getReader();
         const decoder = new TextDecoder();
         let buffer = '';
-        let text = '';
-        let first = true;
 
         while (true) {
             const { done, value } = await reader.read();
@@ -83,19 +88,49 @@ async function sendMessage(text) {
                 if (!line.startsWith('data: ')) continue;
                 const data = line.slice(6).trim();
                 if (!data || data === '[DONE]') continue;
-                try {
-                    const obj = JSON.parse(data);
-                    const delta = obj.choices?.[0]?.delta?.content || '';
-                    if (delta) {
-                        if (first) { bubble.textContent = ''; first = false; }
-                        text += delta;
-                        bubble.textContent = text;
-                        scheduleScroll();
+
+                let ev;
+                try { ev = JSON.parse(data); } catch { continue; }
+
+                if (ev.type === 'tool_call') {
+                    if (!toolBlock) {
+                        toolBlock = document.createElement('div');
+                        toolBlock.className = 'tool-block';
+                        bubble.parentElement.insertBefore(toolBlock, bubble.parentElement.firstChild);
                     }
-                } catch { /* ignore */ }
+                    const item = document.createElement('div');
+                    item.className = 'tool-item pending';
+                    item.innerHTML = `🔧 <code>${ev.name}</code>(${JSON.stringify(ev.args)})`;
+                    toolBlock.appendChild(item);
+                    bubble.textContent = '⚙️ sensör okunuyor...';
+                }
+                else if (ev.type === 'tool_result') {
+                    if (toolBlock) {
+                        const pending = toolBlock.querySelector('.tool-item.pending');
+                        if (pending) {
+                            pending.classList.remove('pending');
+                            pending.classList.add('done');
+                            const res = document.createElement('pre');
+                            res.className = 'tool-result';
+                            res.textContent = JSON.stringify(ev.result, null, 2);
+                            pending.appendChild(res);
+                        }
+                    }
+                }
+                else if (ev.type === 'content') {
+                    finalText = ev.text;
+                    bubble.textContent = finalText;
+                    scheduleScroll();
+                }
+                else if (ev.type === 'error') {
+                    bubble.parentElement.classList.remove('assistant');
+                    bubble.parentElement.classList.add('error');
+                    bubble.textContent = `Hata: ${ev.message}`;
+                }
             }
         }
-        history.push({ role: 'assistant', content: text });
+
+        if (finalText) history.push({ role: 'assistant', content: finalText });
     } catch (err) {
         bubble.parentElement.classList.remove('assistant');
         bubble.parentElement.classList.add('error');

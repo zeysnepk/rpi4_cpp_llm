@@ -1,3 +1,4 @@
+#include "tool_dispatcher.hpp"
 #include <httplib.h>
 #include <nlohmann/json.hpp>
 #include "sensor_manager.hpp"
@@ -33,6 +34,7 @@ int main() {
 
     SensorManager sensors(cfg);
     sensors.start();
+    ToolDispatcher dispatcher(sensors, CONFIG_PATH);
 
     httplib::Server server;
     g_server = &server;
@@ -94,7 +96,8 @@ int main() {
     });
 
     // CHAT proxy (degismedi)
-    server.Post("/api/chat", [](const httplib::Request& req, httplib::Response& res) {
+    server.Post("/api/chat", [&dispatcher](const httplib::Request& req,
+                                           httplib::Response& res) {
         json incoming;
         try { incoming = json::parse(req.body); }
         catch (const std::exception& e) {
@@ -102,50 +105,110 @@ int main() {
             res.set_content(std::string("Invalid JSON: ") + e.what(), "text/plain");
             return;
         }
-        json payload = {
-            {"model","local"},
-            {"messages",     incoming.value("messages", json::array())},
-            {"stream",       true},
-            {"temperature",  incoming.value("temperature", 0.3)},
-            {"top_p", 0.95}, {"top_k", 40},
-            {"max_tokens",   incoming.value("max_tokens", 512)},
-            {"cache_prompt", true}
-        };
-        const std::string payload_str = payload.dump();
 
         res.set_chunked_content_provider("text/event-stream",
-            [payload_str](size_t, httplib::DataSink& sink) -> bool {
-                httplib::Client cli(LLAMA_HOST, LLAMA_PORT);
-                cli.set_read_timeout(std::chrono::seconds(600));
-                cli.set_write_timeout(std::chrono::seconds(60));
-
-                // Manuel Request: streaming response icin tek temiz yol
-                httplib::Request rq;
-                rq.method = "POST";
-                rq.path   = "/v1/chat/completions";
-                rq.headers.emplace("Content-Type", "application/json");
-                rq.headers.emplace("Accept",       "text/event-stream");
-                rq.body   = payload_str;
-
-                // llama-server'dan gelen her chunk'i tarayiciya ilet
-                rq.content_receiver = [&sink](const char* data, size_t len,
-                                              uint64_t /*off*/, uint64_t /*tot*/) -> bool {
-                    return sink.write(data, len);
+            [incoming, &dispatcher](size_t, httplib::DataSink& sink) -> bool {
+                auto send_event = [&sink](const json& ev) {
+                    std::string s = "data: " + ev.dump() + "\n\n";
+                    return sink.write(s.data(), s.size());
                 };
 
-                auto result = cli.send(rq);
-                if (!result) {
-                    std::string err = "data: {\"error\":\"llama-server unreachable on "
-                                      "port 8080\"}\n\n";
-                    sink.write(err.data(), err.size());
+                json messages = incoming.value("messages", json::array());
+                json tools    = dispatcher.get_tool_definitions();
+                const int MAX_ITER = 5;
+
+                for (int iter = 0; iter < MAX_ITER; iter++) {
+                    json payload = {
+                        {"model", "local"},
+                        {"messages", messages},
+                        {"tools", tools},
+                        {"tool_choice", "auto"},
+                        {"stream", false},
+                        {"temperature", incoming.value("temperature", 0.3)},
+                        {"max_tokens",  incoming.value("max_tokens", 512)},
+                        {"cache_prompt", true}
+                    };
+
+                    httplib::Client cli(LLAMA_HOST, LLAMA_PORT);
+                    cli.set_read_timeout(std::chrono::seconds(120));
+
+                    auto result = cli.Post(
+                        "/v1/chat/completions",
+                        {{"Content-Type", "application/json"}},
+                        payload.dump(), "application/json");
+
+                    if (!result) {
+                        send_event({{"type","error"},
+                                    {"message","llama-server unreachable"}});
+                        break;
+                    }
+
+                    json response;
+                    try { response = json::parse(result->body); }
+                    catch (...) {
+                        send_event({{"type","error"},
+                                    {"message","llama yanit parse hatasi"}});
+                        break;
+                    }
+
+                    if (!response.contains("choices") || response["choices"].empty()) {
+                        send_event({{"type","error"},
+                                    {"message","Bos yanit"}});
+                        break;
+                    }
+
+                    json msg = response["choices"][0]["message"];
+
+                    // Tool calls var mi?
+                    if (msg.contains("tool_calls") && !msg["tool_calls"].empty()) {
+                        messages.push_back(msg);
+
+                        for (const auto& tc : msg["tool_calls"]) {
+                            std::string tname = tc["function"]["name"];
+                            json targs = json::object();
+                            try {
+                                // arguments string olarak gelir, parse et
+                                if (tc["function"]["arguments"].is_string()) {
+                                    targs = json::parse(
+                                        tc["function"]["arguments"].get<std::string>());
+                                } else {
+                                    targs = tc["function"]["arguments"];
+                                }
+                            } catch (...) { /* bos args */ }
+
+                            send_event({
+                                {"type", "tool_call"},
+                                {"name", tname},
+                                {"args", targs}
+                            });
+
+                            json tresult = dispatcher.execute(tname, targs);
+
+                            send_event({
+                                {"type", "tool_result"},
+                                {"name", tname},
+                                {"result", tresult}
+                            });
+
+                            messages.push_back({
+                                {"role", "tool"},
+                                {"tool_call_id", tc.value("id", "")},
+                                {"content", tresult.dump()}
+                            });
+                        }
+                        // dongu devam
+                    } else {
+                        // Nihai cevap
+                        std::string content = msg.value("content", "");
+                        send_event({{"type","content"}, {"text", content}});
+                        break;
+                    }
                 }
+
+                std::string done = "data: [DONE]\n\n";
+                sink.write(done.data(), done.size());
                 sink.done();
                 return true;
             });
     });
-
-    std::cout << "Dashboard: http://" << DASHBOARD_HOST << ":" << DASHBOARD_PORT << "\n";
-    server.listen(DASHBOARD_HOST, DASHBOARD_PORT);
-    sensors.stop();
-    return 0;
 }

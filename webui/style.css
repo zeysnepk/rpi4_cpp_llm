@@ -211,6 +211,31 @@ button:disabled { background: var(--panel-2); color: var(--text-dim); cursor: no
 .left-column::-webkit-scrollbar-thumb,
 .chat::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
 
+.tool-block {
+    background: rgba(31, 111, 235, 0.08);
+    border-left: 3px solid var(--accent);
+    border-radius: 6px;
+    padding: 8px 12px;
+    margin-bottom: 8px;
+    font-size: 12px;
+    color: var(--text-dim);
+}
+.tool-item { padding: 4px 0; font-family: ui-monospace, monospace; }
+.tool-item code { color: var(--accent); }
+.tool-item.pending::after { content: ' ⏳'; }
+.tool-item.done    { color: var(--text); }
+.tool-item.done::after { content: ' ✓'; color: var(--ok); }
+.tool-result {
+    margin-top: 4px;
+    padding: 6px 8px;
+    background: rgba(0,0,0,0.3);
+    border-radius: 4px;
+    font-size: 11px;
+    color: var(--text-dim);
+    max-height: 120px;
+    overflow-y: auto;
+}
+
 /* MOBIL (dar ekran: stack) */
 @media (max-width: 900px) {
     .main-grid {

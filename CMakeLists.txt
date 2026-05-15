@@ -18,7 +18,8 @@ file(GLOB SENSOR_SOURCES src/sensors/*.cpp)
 add_executable(dashboard
     src/dashboard.cpp
     src/sensor_manager.cpp
-    src/gpio_power.cpp           # <-- YENI
+    src/gpio_power.cpp  
+    src/tool_dispatcher.cpp 
     ${SENSOR_SOURCES}
 )
 
