@@ -236,6 +236,27 @@ button:disabled { background: var(--panel-2); color: var(--text-dim); cursor: no
     overflow-y: auto;
 }
 
+/* Thinking animasyonu - klasik 3 nokta staggered */
+.bubble.thinking {
+    color: var(--text-dim);
+    padding: 12px 18px;
+    font-size: 18px;
+    letter-spacing: 4px;
+    line-height: 1;
+}
+.bubble.thinking .dot {
+    display: inline-block;
+    animation: dot-bounce 1.4s infinite ease-in-out both;
+}
+.bubble.thinking .dot:nth-child(1) { animation-delay: -0.32s; }
+.bubble.thinking .dot:nth-child(2) { animation-delay: -0.16s; }
+.bubble.thinking .dot:nth-child(3) { animation-delay:  0s;    }
+
+@keyframes dot-bounce {
+    0%, 80%, 100% { opacity: 0.2; transform: translateY(0); }
+    40%           { opacity: 1;   transform: translateY(-3px); }
+}
+
 /* MOBIL (dar ekran: stack) */
 @media (max-width: 900px) {
     .main-grid {

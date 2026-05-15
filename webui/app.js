@@ -57,13 +57,15 @@ async function checkHealth() {
 async function sendMessage(text) {
     addMessage('user', text);
     const bubble = addMessage('assistant', '');
-    bubble.textContent = '⏳ düşünüyor...';
+    bubble.classList.add('thinking');
+    bubble.innerHTML = '<span class="dot">.</span><span class="dot">.</span><span class="dot">.</span>';
 
     history.push({ role: 'user', content: text });
     const messages = [{ role: 'system', content: SYSTEM_PROMPT }, ...history];
 
-    let toolBlock = null;   // tool call'lar icin alt panel
+    let toolBlock = null;
     let finalText = '';
+    let isStreaming = false;
 
     try {
         const response = await fetch('/api/chat', {
@@ -92,17 +94,33 @@ async function sendMessage(text) {
                 let ev;
                 try { ev = JSON.parse(data); } catch { continue; }
 
-                if (ev.type === 'tool_call') {
+                if (ev.type === 'content_delta') {
+                    if (!isStreaming) {
+                        bubble.classList.remove('thinking');
+                        bubble.textContent = '';
+                        isStreaming = true;
+                    }
+                    finalText += ev.text;
+                    bubble.textContent = finalText;
+                    scheduleScroll();
+                }
+                else if (ev.type === 'tool_call') {
                     if (!toolBlock) {
                         toolBlock = document.createElement('div');
                         toolBlock.className = 'tool-block';
-                        bubble.parentElement.insertBefore(toolBlock, bubble.parentElement.firstChild);
+                        bubble.parentElement.insertBefore(toolBlock, bubble);
                     }
                     const item = document.createElement('div');
                     item.className = 'tool-item pending';
                     item.innerHTML = `🔧 <code>${ev.name}</code>(${JSON.stringify(ev.args)})`;
                     toolBlock.appendChild(item);
-                    bubble.textContent = '⚙️ sensör okunuyor...';
+
+                    // Tool calisirken bubble'i tekrar "..." yap
+                    if (!isStreaming) {
+                        bubble.classList.add('thinking');
+                        bubble.innerHTML = '<span class="dot">.</span><span class="dot">.</span><span class="dot">.</span>';
+                    }
+                    scheduleScroll();
                 }
                 else if (ev.type === 'tool_result') {
                     if (toolBlock) {
@@ -117,12 +135,14 @@ async function sendMessage(text) {
                         }
                     }
                 }
-                else if (ev.type === 'content') {
-                    finalText = ev.text;
-                    bubble.textContent = finalText;
-                    scheduleScroll();
+                else if (ev.type === 'done') {
+                    bubble.classList.remove('thinking');
+                    if (!isStreaming && !finalText) {
+                        bubble.textContent = '(boş yanıt)';
+                    }
                 }
                 else if (ev.type === 'error') {
+                    bubble.classList.remove('thinking');
                     bubble.parentElement.classList.remove('assistant');
                     bubble.parentElement.classList.add('error');
                     bubble.textContent = `Hata: ${ev.message}`;
@@ -132,6 +152,7 @@ async function sendMessage(text) {
 
         if (finalText) history.push({ role: 'assistant', content: finalText });
     } catch (err) {
+        bubble.classList.remove('thinking');
         bubble.parentElement.classList.remove('assistant');
         bubble.parentElement.classList.add('error');
         bubble.textContent = `Hata: ${err.message}`;

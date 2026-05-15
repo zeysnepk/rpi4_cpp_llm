@@ -154,93 +154,161 @@ int main() {
                 json tools    = dispatcher.get_tool_definitions();
                 const int MAX_ITER = 5;
 
+                // Bir tool call'in stream icinde parcali gelmesi durumu icin
+                struct ToolCallAcc {
+                    std::string id;
+                    std::string name;
+                    std::string arguments;
+                };
+
                 for (int iter = 0; iter < MAX_ITER; iter++) {
+                    // Bu iterasyon icin state
+                    std::string sse_buf;
+                    std::vector<ToolCallAcc> tool_acc;
+                    std::string finish_reason;
+
                     json payload = {
                         {"model",        "local"},
                         {"messages",     messages},
                         {"tools",        tools},
-                        {"tool_choice",  "auto"},
-                        {"stream",       false},
+                        {"stream",       true},
                         {"temperature",  incoming.value("temperature", 0.3)},
                         {"max_tokens",   incoming.value("max_tokens", 512)},
                         {"cache_prompt", true}
                     };
 
                     httplib::Client cli(LLAMA_HOST, LLAMA_PORT);
-                    cli.set_read_timeout(std::chrono::seconds(120));
+                    cli.set_read_timeout(std::chrono::seconds(300));
 
-                    auto result = cli.Post(
-                        "/v1/chat/completions",
-                        {{"Content-Type", "application/json"}},
-                        payload.dump(), "application/json");
+                    httplib::Request rq;
+                    rq.method = "POST";
+                    rq.path   = "/v1/chat/completions";
+                    rq.headers.emplace("Content-Type", "application/json");
+                    rq.headers.emplace("Accept",       "text/event-stream");
+                    rq.body   = payload.dump();
 
-                    if (!result) {
-                        send_event({{"type", "error"},
-                                    {"message", "llama-server unreachable on 8080"}});
-                        break;
-                    }
+                    // llama-server'dan gelen SSE chunk'lari parse et,
+                    // content varsa direkt browser'a forward et,
+                    // tool_calls varsa biriktir
+                    rq.content_receiver = [&](const char* data, size_t len,
+                                              uint64_t, uint64_t) -> bool {
+                        sse_buf.append(data, len);
 
-                    json response;
-                    try { response = json::parse(result->body); }
-                    catch (...) {
-                        send_event({{"type", "error"},
-                                    {"message", "llama yanit parse hatasi"}});
-                        break;
-                    }
+                        size_t pos;
+                        while ((pos = sse_buf.find('\n')) != std::string::npos) {
+                            std::string line = sse_buf.substr(0, pos);
+                            sse_buf.erase(0, pos + 1);
+                            if (!line.empty() && line.back() == '\r') line.pop_back();
 
-                    if (!response.contains("choices") || response["choices"].empty()) {
-                        send_event({{"type", "error"},
-                                    {"message", "Bos yanit"}});
-                        break;
-                    }
+                            if (line.rfind("data: ", 0) != 0) continue;
+                            std::string data_str = line.substr(6);
+                            if (data_str == "[DONE]") continue;
 
-                    json msg = response["choices"][0]["message"];
+                            json chunk;
+                            try { chunk = json::parse(data_str); } catch (...) { continue; }
 
-                    // Tool calls var mi?
-                    if (msg.contains("tool_calls") && !msg["tool_calls"].empty()) {
-                        messages.push_back(msg);
+                            if (!chunk.contains("choices") || chunk["choices"].empty()) continue;
+                            const auto& choice = chunk["choices"][0];
 
-                        for (const auto& tc : msg["tool_calls"]) {
-                            std::string tname = tc["function"]["name"];
-                            json targs = json::object();
-                            try {
-                                if (tc["function"]["arguments"].is_string()) {
-                                    targs = json::parse(
-                                        tc["function"]["arguments"].get<std::string>());
-                                } else {
-                                    targs = tc["function"]["arguments"];
+                            if (choice.contains("finish_reason") &&
+                                !choice["finish_reason"].is_null()) {
+                                finish_reason = choice["finish_reason"].get<std::string>();
+                            }
+
+                            if (!choice.contains("delta")) continue;
+                            const auto& delta = choice["delta"];
+
+                            // Content -> browser'a forward
+                            if (delta.contains("content") && delta["content"].is_string()) {
+                                std::string text = delta["content"].get<std::string>();
+                                if (!text.empty()) {
+                                    json ev = {{"type","content_delta"}, {"text", text}};
+                                    std::string s = "data: " + ev.dump() + "\n\n";
+                                    if (!sink.write(s.data(), s.size())) return false;
                                 }
-                            } catch (...) { /* bos args */ }
+                            }
 
-                            send_event({
-                                {"type", "tool_call"},
-                                {"name", tname},
-                                {"args", targs}
+                            // Tool call deltalarini birikir
+                            if (delta.contains("tool_calls") &&
+                                delta["tool_calls"].is_array()) {
+                                for (const auto& tc : delta["tool_calls"]) {
+                                    int idx = tc.value("index", 0);
+                                    while ((int)tool_acc.size() <= idx) tool_acc.push_back({});
+                                    auto& acc = tool_acc[idx];
+
+                                    if (tc.contains("id") && tc["id"].is_string())
+                                        acc.id = tc["id"].get<std::string>();
+
+                                    if (tc.contains("function")) {
+                                        const auto& fn = tc["function"];
+                                        if (fn.contains("name") && fn["name"].is_string())
+                                            acc.name = fn["name"].get<std::string>();
+                                        if (fn.contains("arguments") && fn["arguments"].is_string())
+                                            acc.arguments += fn["arguments"].get<std::string>();
+                                    }
+                                }
+                            }
+                        }
+                        return true;
+                    };
+
+                    auto result = cli.send(rq);
+                    if (!result) {
+                        send_event({{"type","error"},
+                                    {"message","llama-server unreachable"}});
+                        break;
+                    }
+
+                    // Stream bitti. Tool call var mi?
+                    if (finish_reason == "tool_calls" && !tool_acc.empty()) {
+                        // Assistant mesajini ekle (tool_calls icerikli)
+                        json assistant_msg = {
+                            {"role", "assistant"},
+                            {"content", nullptr},
+                            {"tool_calls", json::array()}
+                        };
+                        for (const auto& acc : tool_acc) {
+                            assistant_msg["tool_calls"].push_back({
+                                {"id", acc.id},
+                                {"type", "function"},
+                                {"function", {
+                                    {"name", acc.name},
+                                    {"arguments", acc.arguments}
+                                }}
                             });
+                        }
+                        messages.push_back(assistant_msg);
 
-                            json tresult = dispatcher.execute(tname, targs);
+                        // Her tool'u calistir, sonuc event'lerini yolla,
+                        // messages'a tool sonucunu ekle
+                        for (const auto& acc : tool_acc) {
+                            json targs = json::object();
+                            try { targs = json::parse(acc.arguments); } catch (...) {}
 
-                            send_event({
-                                {"type", "tool_result"},
-                                {"name", tname},
-                                {"result", tresult}
-                            });
+                            send_event({{"type","tool_call"},
+                                        {"name", acc.name},
+                                        {"args", targs}});
+
+                            json tresult = dispatcher.execute(acc.name, targs);
+
+                            send_event({{"type","tool_result"},
+                                        {"name", acc.name},
+                                        {"result", tresult}});
 
                             messages.push_back({
                                 {"role",         "tool"},
-                                {"tool_call_id", tc.value("id", "")},
+                                {"tool_call_id", acc.id},
                                 {"content",      tresult.dump()}
                             });
                         }
-                        // dongu devam: yeni messages ile tekrar llama'ya soracagiz
+                        // Dongu devam: yeni messages ile tekrar stream et
                     } else {
-                        // Tool yok, nihai cevap
-                        std::string content = msg.value("content", "");
-                        send_event({{"type", "content"}, {"text", content}});
+                        // Tool yok, content zaten stream edildi, bitir
                         break;
                     }
                 }
 
+                send_event({{"type","done"}});
                 std::string done = "data: [DONE]\n\n";
                 sink.write(done.data(), done.size());
                 sink.done();
