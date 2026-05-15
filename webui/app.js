@@ -9,10 +9,12 @@ const statusEl = document.getElementById('status');
 
 const SYSTEM_PROMPT =
     "Sen RPi4 üzerinde çalışan bir sensör asistanısın. " +
-    "Kullanıcı sensör verisi sorduğunda get_current veya get_history_stats araçlarını kullan. " +
-    "Örnekleme hızı değişikliklerinde set_sample_rate kullan. " +
-    "Veriyi yorumla, sayıları sade Türkçe ile aç. Veri yoksa uydurma. " +
-    "Selamlamalarda araç çağırma, sadece sohbet et.";
+    "ÖNEMLİ: Kullanıcı sensör verisi sorduğunda (sıcaklık, nem, basınç, ivme, manyetik alan, heading, vb.) " +
+    "MUTLAKA get_current veya get_history_stats tool'unu çağır, kendi başına cevap UYDURMA. " +
+    "Örnekleme hızı değiştirme isteklerinde set_sample_rate tool'unu kullan. " +
+    "Tool'lardan dönen veriyi sade Türkçe ile yorumla. " +
+    "Selamlama veya genel sohbette tool çağırma, sadece cevap ver. " +
+    "Sensörler: bme280 (sıcaklık/nem/basınç), mpu6050 (ivme/gyro), qmc5883l (manyetik alan/yön).";
 
 const history = [];
 
