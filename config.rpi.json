@@ -1,0 +1,36 @@
+{
+    "mode": "real",
+    "translator": {
+        "enabled": false,
+        "host": "127.0.0.1",
+        "port": 5000,
+        "timeout_ms": 8000
+    },
+    "llm": {
+        "temperature": 0.2,
+        "max_tokens": 200
+    },
+    "thresholds": {
+        "bme280.temperature_c":  { "min": 18,    "max": 28,    "label": "oda sicakligi" },
+        "bme280.humidity_pct":   { "min": 30,    "max": 70,    "label": "konfor nemi" },
+        "bme280.pressure_hpa":   { "min": 980,   "max": 1040,  "label": "atmosfer basinci" },
+        "mpu6050.accel_g.x":     { "min": -0.10, "max": 0.10,  "label": "yatay X (statik)" },
+        "mpu6050.accel_g.y":     { "min": -0.10, "max": 0.10,  "label": "yatay Y (statik)" },
+        "mpu6050.accel_g.z":     { "min": 0.92,  "max": 1.08,  "label": "statik gravity" },
+        "mpu6050.gyro_dps.x":    { "min": -2.0,  "max": 2.0,   "label": "statik gyro X" },
+        "mpu6050.gyro_dps.y":    { "min": -2.0,  "max": 2.0,   "label": "statik gyro Y" },
+        "mpu6050.gyro_dps.z":    { "min": -2.0,  "max": 2.0,   "label": "statik gyro Z" },
+        "mpu6050.temp_c":        { "min": 15,    "max": 60,    "label": "MPU ic sicaklik" }
+    },
+    "sensors": {
+        "power_pin": {
+            "chip": "gpiochip0",
+            "bcm": 13,
+            "active_high": true,
+            "settle_ms": 250
+        },
+        "bme280":   { "enabled": true, "sample_rate_hz": 1,  "i2c_address": "0x76" },
+        "mpu6050":  { "enabled": true, "sample_rate_hz": 50, "i2c_address": "0x68" },
+        "qmc5883l": { "enabled": true, "sample_rate_hz": 10, "i2c_address": "0x0D" }
+    }
+}

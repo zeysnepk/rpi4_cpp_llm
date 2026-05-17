@@ -1,20 +1,26 @@
 #pragma once
 #include "sensor_manager.hpp"
+#include "analyzer.hpp"
 #include <nlohmann/json.hpp>
 #include <string>
 
 class ToolDispatcher {
 public:
-    ToolDispatcher(SensorManager& sensors, std::string config_path);
+    ToolDispatcher(SensorManager& sensors,
+                   const Analyzer& analyzer,
+                   std::string config_path);
 
-    // OpenAI-uyumlu tool tanim listesi
     nlohmann::json get_tool_definitions() const;
-
-    // Tool calistir, sonucu JSON olarak don
     nlohmann::json execute(const std::string& name, const nlohmann::json& args);
+
+    // LLM'e gidecek tool sonucunu Turkce metin olarak formatla
+    // (yuvarlanmis, anlamli, kisa)
+    std::string format_for_llm(const std::string& tool_name,
+                                const nlohmann::json& tool_result) const;
 
 private:
     SensorManager& sensors_;
+    const Analyzer& analyzer_;
     std::string config_path_;
 
     nlohmann::json tool_get_current(const nlohmann::json& args);

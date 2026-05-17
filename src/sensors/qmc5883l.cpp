@@ -33,7 +33,7 @@ bool QMC5883L::init() {
     return true;
 }
 
-bool QMC5883L::set_odr_hz(int hz) {
+bool QMC5883L::set_rate(int hz) {
     if (!online_) return false;
     uint8_t odr_bits = 0x00;
     if      (hz <= 10)  odr_bits = 0x00;

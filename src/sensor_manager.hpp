@@ -1,9 +1,7 @@
 #pragma once
 #include "sensors/sensor.hpp"
 #include "sensors/i2c_bus.hpp"
-#include "sensors/bme280.hpp"
-#include "sensors/mpu6050.hpp"
-#include "sensors/qmc5883l.hpp"
+#include "gpio_power.hpp"
 
 #include <nlohmann/json.hpp>
 #include <thread>
@@ -12,8 +10,6 @@
 #include <unordered_map>
 #include <deque>
 #include <chrono>
-
-#include "gpio_power.hpp"
 #include <memory>
 
 struct SensorReading {
@@ -29,24 +25,26 @@ public:
     void start();
     void stop();
 
-    // Anlik (en son) tum sensor degerleri
     nlohmann::json latest_all() const;
-
-    // Belirli bir sensorun son N saniyelik gecmisi (grafik icin)
     nlohmann::json history(const std::string& sensor_name, int seconds) const;
-
-    // Config'i guncelle (LLM bunu cagiracak ileride)
     bool set_sample_rate(const std::string& sensor_name, int hz);
 
+    std::string mode() const { return mode_; }
+
 private:
-    std::unique_ptr<GPIOPower> power_;
     void run_loop();
 
     nlohmann::json config_;
-    I2CBus bus_;
-    BME280   bme_;
-    MPU6050  mpu_;
-    QMC5883L qmc_;
+    std::string mode_;   // "real" | "sim"
+
+    // Real-mode only (sim'de nullptr)
+    std::unique_ptr<I2CBus>    bus_;
+    std::unique_ptr<GPIOPower> power_;
+
+    // Sensorler - polymorphic (real veya sim)
+    std::unique_ptr<Sensor> bme_;
+    std::unique_ptr<Sensor> mpu_;
+    std::unique_ptr<Sensor> qmc_;
 
     struct SensorInfo {
         Sensor* sensor;
@@ -60,5 +58,5 @@ private:
     std::atomic<bool> running_{false};
     std::thread worker_;
 
-    static constexpr size_t HISTORY_MAX = 6000;  // ~600 sn @ 10 Hz
+    static constexpr size_t HISTORY_MAX = 6000;
 };

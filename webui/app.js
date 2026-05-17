@@ -7,16 +7,12 @@ const input = document.getElementById('input');
 const sendBtn = document.getElementById('send');
 const statusEl = document.getElementById('status');
 
-const SYSTEM_PROMPT =
-    "Sen RPi4 üzerinde çalışan bir sensör asistanısın. " +
-    "ÖNEMLİ: Kullanıcı sensör verisi sorduğunda (sıcaklık, nem, basınç, ivme, manyetik alan, heading, vb.) " +
-    "MUTLAKA get_current veya get_history_stats tool'unu çağır, kendi başına cevap UYDURMA. " +
-    "Örnekleme hızı değiştirme isteklerinde set_sample_rate tool'unu kullan. " +
-    "Tool'lardan dönen veriyi sade Türkçe ile yorumla. " +
-    "Selamlama veya genel sohbette tool çağırma, sadece cevap ver. " +
-    "Sensörler: bme280 (sıcaklık/nem/basınç), mpu6050 (ivme/gyro), qmc5883l (manyetik alan/yön).";
+// NOT: Backend kendi system prompt'unu enjekte ediyor (IntentRouter + LLM-Interpreter).
+// Burada sadece user mesajlarini yolluyoruz. History opsiyonel olarak gonderilebilir,
+// ama backend simdilik sadece son user mesajini kullaniyor.
 
 const history = [];
+let latestSensors = null;
 
 let scrollPending = false;
 function scheduleScroll() {
@@ -63,7 +59,8 @@ async function sendMessage(text) {
     bubble.innerHTML = '<span class="dot">.</span><span class="dot">.</span><span class="dot">.</span>';
 
     history.push({ role: 'user', content: text });
-    const messages = [{ role: 'system', content: SYSTEM_PROMPT }, ...history];
+    // Backend sadece son user mesajini kullaniyor; yine de history yollayalim (gelecekte multi-turn icin)
+    const messages = [...history];
 
     let toolBlock = null;
     let finalText = '';
@@ -73,7 +70,7 @@ async function sendMessage(text) {
         const response = await fetch('/api/chat', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ messages, temperature: 0.3, max_tokens: 512 })
+            body: JSON.stringify({ messages })
         });
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
 
@@ -117,7 +114,6 @@ async function sendMessage(text) {
                     item.innerHTML = `🔧 <code>${ev.name}</code>(${JSON.stringify(ev.args)})`;
                     toolBlock.appendChild(item);
 
-                    // Tool calisirken bubble'i tekrar "..." yap
                     if (!isStreaming) {
                         bubble.classList.add('thinking');
                         bubble.innerHTML = '<span class="dot">.</span><span class="dot">.</span><span class="dot">.</span>';
@@ -148,10 +144,6 @@ async function sendMessage(text) {
                     bubble.parentElement.classList.remove('assistant');
                     bubble.parentElement.classList.add('error');
                     bubble.textContent = `Hata: ${ev.message}`;
-                }
-                else if (ev.type === 'translation_in') {
-                    // Console'a logla (kullanıcıya gösterme)
-                    console.log(`[Çeviri] TR: "${ev.tr}" → EN: "${ev.en}"`);
                 }
             }
         }
@@ -188,7 +180,7 @@ input.addEventListener('input', () => {
 });
 
 // ============================================================
-// SENSOR KARTLARI (sayisal okumalar)
+// SENSOR KARTLARI
 // ============================================================
 function fmt(n, digits=2) {
     if (typeof n !== 'number') return String(n);
@@ -209,12 +201,11 @@ function renderReadings(card, data) {
 }
 
 // ============================================================
-// GRAFIKLER - Web Worker'a delege edildi (ayri thread)
+// GRAFIKLER (Web Worker)
 // ============================================================
 const chartWorker = new Worker('chart-worker.js');
 
 function initCharts() {
-    // Kanvasin gercek pixel boyutunu ayarla, sonra worker'a transfer et
     requestAnimationFrame(() => {
         for (const name of ['bme280', 'mpu6050', 'qmc5883l']) {
             const canvas = document.getElementById('chart-' + name);
@@ -233,7 +224,6 @@ function pushPoint(name, label, values) {
     chartWorker.postMessage({ type: 'update', name, label, values });
 }
 
-// Window resize -> worker'a bildir
 let resizeTimer = null;
 window.addEventListener('resize', () => {
     clearTimeout(resizeTimer);
@@ -256,7 +246,7 @@ function timeLabel() {
 function gyroMag(g) { return Math.sqrt(g.x*g.x + g.y*g.y + g.z*g.z); }
 
 // ============================================================
-// SENSOR STREAM (SSE - server push)
+// SENSOR STREAM
 // ============================================================
 let sse = null;
 
@@ -280,8 +270,6 @@ function updateCards(all) {
     });
 }
 
-// Chart guncellemesi rAF ile throttle - sunucu 5 Hz pushluyor,
-// rAF browser'in refresh rate'ine (60 Hz) hizalar, akici gorunur
 let chartUpdatePending = false;
 function scheduleChartUpdate() {
     if (!latestSensors) return;
@@ -305,7 +293,6 @@ function startSensorStream() {
     sse = new EventSource('/api/sensors/stream');
 
     sse.onmessage = (event) => {
-        console.log('[SSE]', new Date().toISOString().slice(11,23));
         try {
             latestSensors = JSON.parse(event.data);
             updateCards(latestSensors);
@@ -314,30 +301,106 @@ function startSensorStream() {
     };
 
     sse.onerror = () => {
-        // EventSource otomatik yeniden baglanir (retry: 2000)
         setStatus('err', 'sensör bağlantısı koptu, deniyor...');
         setTimeout(() => checkHealth(), 1500);
-    };
-
-    sse.onopen = () => {
-        // healthy state'i checkHealth ayarlar
     };
 }
 
 // ============================================================
-// BASLATMA
+// MODE SWITCH
 // ============================================================
+async function loadModeStatus() {
+    try {
+        const r = await fetch('/api/mode');
+        if (!r.ok) return;
+        const info = await r.json();
+        const btn = document.getElementById('modeToggle');
+        btn.classList.remove('real', 'sim');
+        btn.classList.add(info.current_mode);
+        btn.querySelector('.mode-text').textContent = info.current_mode;
+        btn.querySelector('.mode-icon').textContent =
+            info.current_mode === 'real' ? '📡' : '🎲';
+        btn.title = `Platform: ${info.platform} | Mode: ${info.current_mode}\nTıkla → ${info.current_mode === 'real' ? 'sim' : 'real'}'e geç`;
+    } catch { /* ignore */ }
+}
+
+async function waitForServerBack() {
+    setStatus('err', 'yeniden başlatılıyor...');
+    for (let i = 0; i < 60; i++) {
+        await new Promise(r => setTimeout(r, 1000));
+        try {
+            const r = await fetch('/api/health');
+            if (r.ok) { window.location.reload(); return; }
+        } catch { /* still down */ }
+    }
+    setStatus('err', 'sunucu dönmedi');
+}
+
+async function toggleMode() {
+    const btn = document.getElementById('modeToggle');
+    const current = btn.querySelector('.mode-text').textContent;
+    const next = current === 'real' ? 'sim' : 'real';
+
+    if (!confirm(`Mode: ${current.toUpperCase()} → ${next.toUpperCase()}\n\nDashboard yeniden başlatılacak (~3 sn). Devam edilsin mi?`)) {
+        return;
+    }
+
+    btn.disabled = true;
+    btn.querySelector('.mode-text').textContent = '...';
+
+    try {
+        const r = await fetch('/api/mode', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ mode: next })
+        });
+        if (!r.ok) throw new Error('mode change failed');
+        waitForServerBack();
+    } catch (err) {
+        btn.disabled = false;
+        alert(`Hata: ${err.message}`);
+        loadModeStatus();
+    }
+}
+
+document.getElementById('modeToggle').addEventListener('click', toggleMode);
+
+// ============================================================
+// TRANSLATOR STATUS
+// ============================================================
+async function loadTranslatorStatus() {
+    try {
+        const r = await fetch('/api/translator');
+        if (!r.ok) return;
+        const info = await r.json();
+        const badge = document.getElementById('translatorBadge');
+        const text = badge.querySelector('.tr-text');
+
+        badge.classList.remove('on', 'off', 'err');
+        if (!info.enabled) {
+            badge.classList.add('off');
+            text.textContent = 'TR direkt';
+            badge.title = 'Translator kapalı — LLM TR direkt cevap veriyor';
+        } else if (info.available) {
+            badge.classList.add('on');
+            text.textContent = 'TR↔EN';
+            badge.title = 'LibreTranslate çalışıyor';
+        } else {
+            badge.classList.add('err');
+            text.textContent = 'TR↔EN ✗';
+            badge.title = 'LibreTranslate erişilemez';
+        }
+    } catch { /* ignore */ }
+}
+
 window.addEventListener('DOMContentLoaded', () => {
     initCharts();
     checkHealth();
     setInterval(checkHealth, 10000);
-    startSensorStream();   
-
-    // Guvenlik agi: SSE gecikirse bile son veriden chart'i besle (1 Hz)
-    setInterval(() => {
-        if (latestSensors) scheduleChartUpdate();
-    }, 1000);
-
-
+    startSensorStream();
+    loadModeStatus();
+    loadTranslatorStatus();
+    setInterval(loadTranslatorStatus, 30000);
+    setInterval(() => { if (latestSensors) scheduleChartUpdate(); }, 1000);
     input.focus();
 });

@@ -8,12 +8,10 @@ public:
     std::string name() const override { return "qmc5883l"; }
     bool init() override;
     nlohmann::json read() override;
-
-    // ODR (Output Data Rate) ayari: 10/50/100/200 Hz
-    bool set_odr_hz(int hz);
+    bool set_rate(int hz) override;   // ODR donanim register'i
 
 private:
     I2CBus& bus_;
     uint8_t addr_;
-    uint8_t ctrl1_ = 0;  // mevcut CTRL1 degerini cache'le
+    uint8_t ctrl1_ = 0;
 };

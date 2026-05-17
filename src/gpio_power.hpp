@@ -22,8 +22,8 @@ private:
     gpiod_chip* chip_ = nullptr;
     gpiod_line* line_ = nullptr;
     int pin_;
-    bool active_high_;
-    bool requested_ = false;
+    [[maybe_unused]] bool active_high_;
+    [[maybe_unused]] bool requested_ = false;
     std::string chip_name_;
     std::string consumer_;
 };
