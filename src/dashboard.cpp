@@ -224,13 +224,31 @@ int main() {
     sensors.start();
 
     std::thread([](){
-        std::this_thread::sleep_for(std::chrono::seconds(3));
-        std::cout << "Warmup basliyor (sys prompt cache'e yukleniyor)...\n";
+        std::cout << "Warmup: llama-server bekleniyor...\n";
         std::cout.flush();
 
         httplib::Client cli(LLAMA_HOST, LLAMA_PORT);
-        cli.set_read_timeout(std::chrono::seconds(120));
+        cli.set_connection_timeout(2, 0);
+        cli.set_read_timeout(5, 0);
 
+        // llama-server /health hazir olana kadar bekle (max 90 sn)
+        bool ready = false;
+        for (int i = 0; i < 45; i++) {
+            std::this_thread::sleep_for(std::chrono::seconds(2));
+            auto h = cli.Get("/health");
+            if (h && h->status == 200) { ready = true; break; }
+        }
+
+        if (!ready) {
+            std::cout << "Warmup atlandi: llama-server 90 sn icinde hazir olmadi\n";
+            std::cout.flush();
+            return;
+        }
+
+        std::cout << "Warmup basliyor (sys prompt cache'e yukleniyor)...\n";
+        std::cout.flush();
+
+        cli.set_read_timeout(std::chrono::seconds(180));
         nlohmann::json payload = {
             {"model", "local"},
             {"messages", {
@@ -250,7 +268,7 @@ int main() {
 
         if (res && res->status == 200) {
             std::cout << "Warmup tamamlandi (" << sec
-                      << " sn). Ilk gercek istek artik hizli olacak.\n";
+                      << " sn). Ilk gercek istek artik hizli.\n";
         } else {
             std::cout << "Warmup basarisiz: status="
                       << (res ? res->status : -1) << "\n";
