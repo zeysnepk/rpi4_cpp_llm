@@ -61,10 +61,10 @@ echo "════════════════════════�
     -m "$MODEL" \
     --host 127.0.0.1 --port 8080 \
     -t $THREADS \
-    -c 4096 \
-    -b 256 \
-    --jinja \
+    -c 2048 \
+    -b 128 \
+    -np 1 \
     --mlock \
-    --cache-type-k q8_0 \
-    --cache-type-v q8_0 \
+    --cache-type-k q4_0 \
+    --cache-type-v q4_0 \
     -ngl 0
