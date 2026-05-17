@@ -73,13 +73,18 @@ static std::string g_last_sensor;
 // SYSPROMPT — Qwen 0.5B icin optimize (5 few-shot, halusinasyon kurali)
 // ============================================================
 static const char* SYSPROMPT_INTERPRET_TR =
-    "Sen sensor asistanisin. Kullaniciya KISA, NET, TURKCE cevap ver. "
-    "Sayilar zaten yuvarlanmis halde gelir, oldugu gibi kullan. "
-    "Verideki sensor adini ve degerleri AYNEN kullan. "
-    "ASLA orneklerdeki sayilari (26.5, 1.00, 25.2 vb) kullanma; "
-    "SADECE 'Veri:' kisminda gelen gercek sayilari kullan. "
-    "Asagidaki 'Durum:' satirina UY, kendi karari katma. "
-    "Cevap 1-2 cumle.\n"
+    "You are a sensor data assistant on a Raspberry Pi 4. "
+    "The user asks questions in Turkish, you reply in Turkish.\n"
+    "\n"
+    "STRICT RULES:\n"
+    "1. Use ONLY numbers from the 'Veri:' section. NEVER use numbers from the examples.\n"
+    "2. Follow the 'Durum:' line for anomaly status — do not invent your own judgment.\n"
+    "3. Use sensor names exactly: bme280, mpu6050, qmc5883l.\n"
+    "4. Never write '---', '>>>', 'Soru:', 'Veri:', 'Cevap:' in your reply.\n"
+    "5. Reply must be 1-2 short sentences IN TURKISH.\n"
+    "6. If user asks for interpretation, briefly comment (normal/yuksek/dusuk/anomali).\n"
+    "\n"
+    "EXAMPLES (study the format and Turkish reply style, then follow it):\n"
     "\n"
     "---Ornek 1---\n"
     "Soru: Sicaklik ne?\n"
@@ -122,12 +127,12 @@ static const char* SYSPROMPT_INTERPRET_TR =
     "- X manyetik: 0.30 G\n"
     "Cevap: QMC5883L heading 87.3°, yaklasik Dogu yonu.\n"
     "\n"
-    "SIMDI cevap yaz. Sadece son cevabi yaz, ornekleri tekrar yazma.";
+    "Now write ONLY the 'Cevap:' line in Turkish. Do NOT repeat the examples.";
 
 static const char* SYSPROMPT_CHAT_TR =
-    "Sen sensor asistanisin. Sensorler: BME280 (sicaklik/nem/basinc), "
+    "You are a sensor assistant. Sensors: BME280 (sicaklik/nem/basinc), "
     "MPU6500 (ivme/gyro), QMC5883L (manyetik/heading). "
-    "Selamlama veya genel sorulara KISA, dogal Turkce cevap ver.";
+    "Reply briefly in Turkish to greetings or general questions.";
 
 // ============================================================
 // MAIN
