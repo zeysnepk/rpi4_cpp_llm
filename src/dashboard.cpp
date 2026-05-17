@@ -73,59 +73,18 @@ static std::string g_last_sensor;
 // SYSPROMPT (10 few-shot ornegi - kalite triadi icin optimize)
 // ============================================================
 static const char* SYSPROMPT_INTERPRET_TR =
-    "Sen sensor asistanisin. Kullaniciya KISA, NET, TURKCE cevap ver. "
-    "Sayilar zaten yuvarlanmis halde gelir, oldugu gibi kullan. "
-    "Verideki sensor adini ve degerleri AYNEN kullan, uydurma. "
-    "'>>> SONUC' satirina UY, kendi karari katma. "
-    "Cevap 1-2 cumle.\n"
+    "Sen sensor asistanisin. Sana otomatik sensor verisi gelir. "
+    "Veriyi kullanarak kullaniciya KISA (1-2 cumle), DOGAL TURKCE cevap ver.\n"
     "\n"
-    "---Ornek 1---\n"
-    "Soru: Sicaklik ne?\n"
-    "Veri:\n"
-    "Sensor verisi:\n"
-    "- sicaklik: 26.50 °C [normal]\n"
-    "- nem: 54.20 %\n"
-    "Cevap: BME280 su an 26.5°C, nem %54.2. Oda sicakligi normal.\n"
-    "\n"
-    "---Ornek 2---\n"
-    "Soru: BME280'i 5 Hz yap\n"
-    "Veri: Tool sonucu: bme280 sensoru 5 Hz olarak ayarlandi. Config'e kaydedildi.\n"
-    "Cevap: BME280 ornekleme hizi 5 Hz olarak ayarlandi.\n"
-    "\n"
-    "---Ornek 3---\n"
-    "Soru: Anomali var mi yorumla\n"
-    "Veri:\n"
-    "Son 60 saniye - Z ivmesi:\n"
-    "- Ortalama: 1.00 g\n"
-    "- Min: 0.95 g\n"
-    "- Max: 1.05 g\n"
-    "- Trend: sabit\n"
-    "\n>>> SONUC: ANOMALI YOK, tum degerler normal araliktada (statik gravity) <<<\n"
-    "Cevap: Hayir, anomali yok. Z ivmesi 0.95-1.05 g arasinda, statik durum normal.\n"
-    "\n"
-    "---Ornek 4---\n"
-    "Soru: Anomali var mi yorumla\n"
-    "Veri:\n"
-    "Son 60 saniye - Z ivmesi:\n"
-    "- Ortalama: 1.05 g\n"
-    "- Min: 0.40 g\n"
-    "- Max: 2.10 g\n"
-    "- Trend: artiyor (toplam degisim 0.50 g)\n"
-    "\n>>> SONUC: ANOMALI VAR (high) - max 2.10 > esik 1.08 <<<\n"
-    "Cevap: Anomali tespit edildi (yuksek). Z ivmesi 2.10 g'ye cikmis, statik durum icin beklenmedik. Darbe veya hareket olabilir.\n"
-    "\n"
-    "---Ornek 5---\n"
-    "Soru: Sicaklik trend\n"
-    "Veri:\n"
-    "Son 60 saniye - sicaklik:\n"
-    "- Ortalama: 25.80 °C\n"
-    "- Min: 25.20 °C\n"
-    "- Max: 26.30 °C\n"
-    "- Trend: artiyor (toplam degisim 1.10 °C, %4.4)\n"
-    "\n>>> SONUC: ANOMALI YOK, normal (oda sicakligi) <<<\n"
-    "Cevap: Son 60 saniyede sicaklik 1.1°C artti, 25.2'den 26.3°C'ye yukseldi. Normal aralikta.\n"
-    "\n"
-    "SIMDI cevap yaz. Sadece son cevabi yaz, ornekleri tekrar yazma.";
+    "KESIN KURALLAR:\n"
+    "1. SADECE veride sana verilen sayilari kullan. ASLA baska sayi UYDURMA.\n"
+    "2. Veride 'ANOMALI VAR' yaziyorsa: 'Anomali tespit edildi' diye basla, sebebini ozetle.\n"
+    "3. Veride 'ANOMALI YOK' yaziyorsa: 'Anomali yok' diye basla.\n"
+    "4. 'Tool sonucu' yaziyorsa: 'X sensoru Y Hz olarak ayarlandi' formatinda cevapla.\n"
+    "5. Sensor adini AYNEN kullan: bme280, mpu6050, qmc5883l.\n"
+    "6. ASLA '---', '>>>', 'Soru:', 'Veri:', 'Cevap:' kelimelerini yazma.\n"
+    "7. Cevap 1-2 cumleden uzun OLMASIN.\n"
+    "8. Yorum istenmisse durum hakkinda kisa fikir ekle (normal/yuksek/dusuk/anomali).\n";
 
 static const char* SYSPROMPT_CHAT_TR =
     "Sen sensor asistanisin. Sensorler: BME280 (sicaklik/nem/basinc), "
@@ -368,9 +327,9 @@ int main() {
                 if (intent.is_tool) {
                     sys_prompt = SYSPROMPT_INTERPRET_TR;
                     user_for_llm =
-                        "Soru: " + user_msg + "\n"
-                        "Veri:\n" + tool_text_for_llm + "\n"
-                        "Cevap:";
+                        "Kullanici sorusu: " + user_msg + "\n\n"
+                        "Sensor verisi:\n" + tool_text_for_llm + "\n\n"
+                        "Bu veriye gore Turkce 1-2 cumle ile cevapla.";
                 } else {
                     sys_prompt = SYSPROMPT_CHAT_TR;
                     user_for_llm = user_msg;
@@ -383,10 +342,10 @@ int main() {
                         {{"role","user"},   {"content", user_for_llm}}
                     }},
                     {"stream",       true},
-                    {"temperature",  0.2},
-                    {"max_tokens",   150},
+                    {"temperature",  0.0},
+                    {"max_tokens",   100},
                     {"cache_prompt", true},
-                    {"stop", {"\n\nSoru:", "---Ornek", "Soru:"}}
+                    {"stop", {"---", ">>>", "\nSoru:", "\nVeri:", "\nCevap:", "\n\n\n"}}
                 };
 
                 httplib::Client cli(LLAMA_HOST, LLAMA_PORT);

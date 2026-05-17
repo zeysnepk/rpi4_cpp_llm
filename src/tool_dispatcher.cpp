@@ -294,6 +294,16 @@ static std::string unit_for(const std::string& metric) {
     return "";
 }
 
+static std::string heading_to_compass(double deg) {
+    deg = std::fmod(deg + 360.0, 360.0);
+    static const char* dirs[] = {
+        "Kuzey","Kuzey-Dogu","Dogu","Guney-Dogu",
+        "Guney","Guney-Bati","Bati","Kuzey-Bati"
+    };
+    int idx = (int)std::round(deg / 45.0) % 8;
+    return dirs[idx];
+}
+
 std::string ToolDispatcher::format_for_llm(const std::string& tool_name,
                                             const json& tr) const {
     if (tr.contains("error")) {
@@ -325,6 +335,9 @@ std::string ToolDispatcher::format_for_llm(const std::string& tool_name,
                 if (v.is_number()) {
                     os << indent << "- " << metric_label(sensor, m) << ": "
                        << round_str(v.get<double>(), 2) << " " << unit_for(m);
+                    if (m == "heading_deg") {
+                        os << " (" << heading_to_compass(v.get<double>()) << ")";
+                    }
                     if (analysis && analysis->contains(m)) {
                         os << " [" << (*analysis)[m].value("status","?") << "]";
                     }
@@ -388,15 +401,15 @@ std::string ToolDispatcher::format_for_llm(const std::string& tool_name,
         if (tr.contains("analysis")) {
             auto& a = tr["analysis"];
             bool anom = a.value("anomaly", false);
-            os << "\n>>> SONUC: ";
+            os << "\nDurum: ";
             if (anom) {
-                os << "ANOMALI VAR (" << a.value("severity","?") << ") - "
-                   << a.value("reason","");
+                os << "ANOMALI VAR (siddet: " << a.value("severity","?") << ", "
+                   << a.value("reason","") << ")";
             } else {
-                os << "ANOMALI YOK, tum degerler normal araliktada ("
-                   << a.value("label","") << ")";
+                os << "ANOMALI YOK (degerler " << a.value("label","")
+                   << " araliginda normal)";
             }
-            os << " <<<\n";
+            os << "\n";
         }
         return os.str();
     }
