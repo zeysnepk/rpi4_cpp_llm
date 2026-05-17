@@ -343,13 +343,15 @@ std::string ToolDispatcher::format_for_llm(const std::string& tool_name,
                     }
                     os << "\n";
                 } else if (v.is_object()) {
-                    // nested: accel_g.x, gyro_dps.y, mag_g.z vb.
                     for (auto& [sub, vv] : v.items()) {
                         if (!vv.is_number()) continue;
                         std::string full = m + "." + sub;
                         os << indent << "- " << metric_label(sensor, full) << ": "
-                           << round_str(vv.get<double>(), 2) << " " << unit_for(full)
-                           << "\n";
+                           << round_str(vv.get<double>(), 2) << " " << unit_for(full);
+                        if (full == "heading_deg") {
+                            os << " (" << heading_to_compass(vv.get<double>()) << ")";
+                        }
+                        os << "\n";
                     }
                 }
             }

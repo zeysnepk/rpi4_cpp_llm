@@ -70,21 +70,59 @@ static std::mutex g_ctx_mtx;
 static std::string g_last_sensor;
 
 // ============================================================
-// SYSPROMPT (10 few-shot ornegi - kalite triadi icin optimize)
+// SYSPROMPT — Qwen 0.5B icin optimize (5 few-shot, halusinasyon kurali)
 // ============================================================
 static const char* SYSPROMPT_INTERPRET_TR =
-    "Sen sensor asistanisin. Sana otomatik sensor verisi gelir. "
-    "Veriyi kullanarak kullaniciya KISA (1-2 cumle), DOGAL TURKCE cevap ver.\n"
+    "Sen sensor asistanisin. Kullaniciya KISA, NET, TURKCE cevap ver. "
+    "Sayilar zaten yuvarlanmis halde gelir, oldugu gibi kullan. "
+    "Verideki sensor adini ve degerleri AYNEN kullan. "
+    "ASLA orneklerdeki sayilari (26.5, 1.00, 25.2 vb) kullanma; "
+    "SADECE 'Veri:' kisminda gelen gercek sayilari kullan. "
+    "Asagidaki 'Durum:' satirina UY, kendi karari katma. "
+    "Cevap 1-2 cumle.\n"
     "\n"
-    "KESIN KURALLAR:\n"
-    "1. SADECE veride sana verilen sayilari kullan. ASLA baska sayi UYDURMA.\n"
-    "2. Veride 'ANOMALI VAR' yaziyorsa: 'Anomali tespit edildi' diye basla, sebebini ozetle.\n"
-    "3. Veride 'ANOMALI YOK' yaziyorsa: 'Anomali yok' diye basla.\n"
-    "4. 'Tool sonucu' yaziyorsa: 'X sensoru Y Hz olarak ayarlandi' formatinda cevapla.\n"
-    "5. Sensor adini AYNEN kullan: bme280, mpu6050, qmc5883l.\n"
-    "6. ASLA '---', '>>>', 'Soru:', 'Veri:', 'Cevap:' kelimelerini yazma.\n"
-    "7. Cevap 1-2 cumleden uzun OLMASIN.\n"
-    "8. Yorum istenmisse durum hakkinda kisa fikir ekle (normal/yuksek/dusuk/anomali).\n";
+    "---Ornek 1---\n"
+    "Soru: Sicaklik ne?\n"
+    "Veri:\n"
+    "Sensor verisi:\n"
+    "- sicaklik: 26.50 °C [normal]\n"
+    "- nem: 54.20 %\n"
+    "Cevap: BME280 su an 26.5°C, nem %54.2. Oda sicakligi normal.\n"
+    "\n"
+    "---Ornek 2---\n"
+    "Soru: BME280'i 5 Hz yap\n"
+    "Veri: Tool sonucu: bme280 sensoru 5 Hz olarak ayarlandi. Config'e kaydedildi.\n"
+    "Cevap: BME280 ornekleme hizi 5 Hz olarak ayarlandi.\n"
+    "\n"
+    "---Ornek 3---\n"
+    "Soru: Anomali var mi yorumla\n"
+    "Veri:\n"
+    "Son 60 saniye - Z ivmesi:\n"
+    "- Ortalama: 1.00 g\n"
+    "- Min: 0.95 g\n"
+    "- Max: 1.05 g\n"
+    "Durum: ANOMALI YOK (degerler statik gravity araliginda normal)\n"
+    "Cevap: Anomali yok. Z ivmesi statik durum icin normal araliktada.\n"
+    "\n"
+    "---Ornek 4---\n"
+    "Soru: Anomali var mi yorumla\n"
+    "Veri:\n"
+    "Son 60 saniye - Z ivmesi:\n"
+    "- Ortalama: 1.05 g\n"
+    "- Min: 0.40 g\n"
+    "- Max: 2.10 g\n"
+    "Durum: ANOMALI VAR (siddet: high, max 2.10 > esik 1.08)\n"
+    "Cevap: Anomali tespit edildi (yuksek siddet). Z ivmesi 2.10 g'ye cikmis, darbe veya hareket olabilir.\n"
+    "\n"
+    "---Ornek 5---\n"
+    "Soru: Heading nedir?\n"
+    "Veri:\n"
+    "Sensor verisi:\n"
+    "- yon (heading): 87.30 ° (Dogu)\n"
+    "- X manyetik: 0.30 G\n"
+    "Cevap: QMC5883L heading 87.3°, yaklasik Dogu yonu.\n"
+    "\n"
+    "SIMDI cevap yaz. Sadece son cevabi yaz, ornekleri tekrar yazma.";
 
 static const char* SYSPROMPT_CHAT_TR =
     "Sen sensor asistanisin. Sensorler: BME280 (sicaklik/nem/basinc), "
@@ -104,6 +142,7 @@ int main() {
     SensorManager  sensors(cfg);
     sensors.start();
 
+    // === WARMUP: llama-server hazir olunca sys prompt'u cache'e yukle ===
     std::thread([](){
         std::cout << "Warmup: llama-server bekleniyor...\n";
         std::cout.flush();
@@ -112,7 +151,6 @@ int main() {
         cli.set_connection_timeout(2, 0);
         cli.set_read_timeout(5, 0);
 
-        // llama-server /health hazir olana kadar bekle (max 90 sn)
         bool ready = false;
         for (int i = 0; i < 45; i++) {
             std::this_thread::sleep_for(std::chrono::seconds(2));
@@ -298,7 +336,7 @@ int main() {
                 auto intent = IntentRouter::parse(user_msg, last_sensor);
 
                 json tool_result;
-                std::string tool_text_for_llm;  // formatlanmis metin
+                std::string tool_text_for_llm;
                 if (intent.is_tool) {
                     send_event({{"type","tool_call"},
                                 {"name", intent.tool_name},
@@ -306,12 +344,10 @@ int main() {
 
                     tool_result = dispatcher.execute(intent.tool_name, intent.args);
 
-                    // UI'a JSON gonderiyoruz (zengin gosterim icin)
                     send_event({{"type","tool_result"},
                                 {"name", intent.tool_name},
                                 {"result", tool_result}});
 
-                    // LLM'e formatli metin gonderiyoruz
                     tool_text_for_llm = dispatcher.format_for_llm(intent.tool_name, tool_result);
 
                     if (intent.args.contains("sensor")) {
@@ -326,10 +362,11 @@ int main() {
                 std::string sys_prompt, user_for_llm;
                 if (intent.is_tool) {
                     sys_prompt = SYSPROMPT_INTERPRET_TR;
+                    // Eski format - 0.5B'nin completion zihniyeti icin
                     user_for_llm =
-                        "Kullanici sorusu: " + user_msg + "\n\n"
-                        "Sensor verisi:\n" + tool_text_for_llm + "\n\n"
-                        "Bu veriye gore Turkce 1-2 cumle ile cevapla.";
+                        "Soru: " + user_msg + "\n"
+                        "Veri:\n" + tool_text_for_llm + "\n"
+                        "Cevap:";
                 } else {
                     sys_prompt = SYSPROMPT_CHAT_TR;
                     user_for_llm = user_msg;
@@ -342,10 +379,10 @@ int main() {
                         {{"role","user"},   {"content", user_for_llm}}
                     }},
                     {"stream",       true},
-                    {"temperature",  0.0},
-                    {"max_tokens",   100},
+                    {"temperature",  0.2},
+                    {"max_tokens",   150},
                     {"cache_prompt", true},
-                    {"stop", {"---", ">>>", "\nSoru:", "\nVeri:", "\nCevap:", "\n\n\n"}}
+                    {"stop", {"\n\nSoru:", "---Ornek", "Soru:"}}
                 };
 
                 httplib::Client cli(LLAMA_HOST, LLAMA_PORT);
@@ -401,7 +438,7 @@ int main() {
 
     std::cout << "Dashboard: http://" << DASHBOARD_HOST << ":" << DASHBOARD_PORT
               << " (mode=" << sensors.mode() << ")\n";
-    std::cout << "Chat: IntentRouter + Analyzer + Trend + LLM-as-Interpreter (10 few-shot)\n";
+    std::cout << "Chat: IntentRouter + Analyzer + Trend + LLM-as-Interpreter (5 few-shot, 0.5B opt)\n";
     std::cout.flush();
 
     bool ok = server.listen(DASHBOARD_HOST, DASHBOARD_PORT);
