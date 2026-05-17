@@ -223,6 +223,41 @@ int main() {
     SensorManager  sensors(cfg);
     sensors.start();
 
+    std::thread([](){
+        std::this_thread::sleep_for(std::chrono::seconds(3));
+        std::cout << "Warmup basliyor (sys prompt cache'e yukleniyor)...\n";
+        std::cout.flush();
+
+        httplib::Client cli(LLAMA_HOST, LLAMA_PORT);
+        cli.set_read_timeout(std::chrono::seconds(120));
+
+        nlohmann::json payload = {
+            {"model", "local"},
+            {"messages", {
+                {{"role","system"}, {"content", SYSPROMPT_INTERPRET_TR}},
+                {{"role","user"},   {"content", "ping"}}
+            }},
+            {"max_tokens",   1},
+            {"temperature",  0.1},
+            {"cache_prompt", true}
+        };
+
+        auto t0 = std::chrono::steady_clock::now();
+        auto res = cli.Post("/v1/chat/completions",
+                            payload.dump(), "application/json");
+        auto sec = std::chrono::duration_cast<std::chrono::seconds>(
+            std::chrono::steady_clock::now() - t0).count();
+
+        if (res && res->status == 200) {
+            std::cout << "Warmup tamamlandi (" << sec
+                      << " sn). Ilk gercek istek artik hizli olacak.\n";
+        } else {
+            std::cout << "Warmup basarisiz: status="
+                      << (res ? res->status : -1) << "\n";
+        }
+        std::cout.flush();
+    }).detach();
+
     Translator     translator(cfg);
     Analyzer       analyzer(cfg);
     ToolDispatcher dispatcher(sensors, analyzer, config_path);
