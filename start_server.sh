@@ -27,7 +27,7 @@ fi
 # IntentRouter mimarisinde LLM sadece yorumlama yapiyor.
 # Kucuk model yeterli + cok daha hizli.
 # ============================================================
-MODEL_FILE="qwen2.5-3b-instruct-q4_k_m.gguf"
+MODEL_FILE="Qwen2.5-0.5B-Instruct-Q4_K_M.gguf"
 
 # Alternatifler:
 # MODEL_FILE="qwen2.5-3b-instruct-q4_k_m.gguf"
