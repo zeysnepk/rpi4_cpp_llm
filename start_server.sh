@@ -24,16 +24,16 @@ fi
 
 # ============================================================
 # MODEL SECIMI
-# IntentRouter mimarisinde LLM sadece yorumlama yapiyor.
-# Kucuk model yeterli + cok daha hizli.
+# Fine-tuned Qwen3.5-0.8B: 800 ornek sensor datasetiyle egitilmis.
+# RPi4'te ~4-5 tok/s, ~500MB GGUF.
 # ============================================================
-MODEL_FILE="Qwen2.5-0.5B-Instruct-Q4_K_M.gguf"
+MODEL_FILE="qwen3-1.7b.Q4_K_M_v2.gguf"
 
 # Alternatifler:
+# MODEL_FILE="Qwen2.5-0.5B-Instruct-Q4_K_M.gguf"        # eski, hizli ama TR kalitesi dusuk
+# MODEL_FILE="qwen_sensor_v3c_q4_k_m.gguf"              # V3 1.5B continue (yavas ama OK)
 # MODEL_FILE="qwen2.5-3b-instruct-q4_k_m.gguf"
-# MODEL_FILE="Qwen2.5-0.5B-Instruct-Q4_K_M.gguf"        # en hizli, Turkce kalitesi azalir
 # MODEL_FILE="Llama-3.2-3B-Instruct-Q4_K_M.gguf"
-# MODEL_FILE="Hermes-3-Llama-3.2-3B-Q4_K_M.gguf"
 
 MODEL="$MODEL_DIR/$MODEL_FILE"
 
@@ -55,8 +55,7 @@ echo " Model    : $MODEL_FILE"
 echo " Threads  : $THREADS"
 echo "═══════════════════════════════════════════════"
 
-# NOT: --jinja artik gerekmiyor (tool calling LLM'de degil, kodla yapiliyor)
-# Ama zarar vermez, biraktik
+# Qwen3.5: --jinja (chat template render) + thinking mode kapali
 "$LLAMA_BIN" \
     -m "$MODEL" \
     --host 127.0.0.1 --port 8080 \
@@ -67,4 +66,6 @@ echo "════════════════════════�
     --mlock \
     --cache-type-k q8_0 \
     --cache-type-v q8_0 \
-    -ngl 0
+    -ngl 0 \
+    --jinja \
+    --chat-template-kwargs '{"enable_thinking": false}'

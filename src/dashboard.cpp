@@ -14,6 +14,7 @@
 #include <csignal>
 #include <atomic>
 #include <mutex>
+#include <regex>
 
 using json = nlohmann::json;
 
@@ -70,69 +71,163 @@ static std::mutex g_ctx_mtx;
 static std::string g_last_sensor;
 
 // ============================================================
-// SYSPROMPT — Qwen 0.5B icin optimize (5 few-shot, halusinasyon kurali)
+// SYSTEM PROMPTLAR
 // ============================================================
-static const char* SYSPROMPT_INTERPRET_TR =
-    "You are a sensor data assistant on a Raspberry Pi 4. "
-    "The user asks questions in Turkish, you reply in Turkish.\n"
-    "\n"
-    "STRICT RULES:\n"
-    "1. Use ONLY numbers from the 'Veri:' section. NEVER use numbers from the examples.\n"
-    "2. Follow the 'Durum:' line for anomaly status — do not invent your own judgment.\n"
-    "3. Use sensor names exactly: bme280, mpu6050, qmc5883l.\n"
-    "4. Never write '---', '>>>', 'Soru:', 'Veri:', 'Cevap:' in your reply.\n"
-    "5. Reply must be 1-2 short sentences IN TURKISH.\n"
-    "6. If user asks for interpretation, briefly comment (normal/yuksek/dusuk/anomali).\n"
-    "\n"
-    "EXAMPLES (study the format and Turkish reply style, then follow it):\n"
-    "\n"
-    "---Ornek 1---\n"
-    "Soru: Sicaklik ne?\n"
-    "Veri:\n"
-    "Sensor verisi:\n"
-    "- sicaklik: 26.50 °C [normal]\n"
-    "- nem: 54.20 %\n"
-    "Cevap: BME280 su an 26.5°C, nem %54.2. Oda sicakligi normal.\n"
-    "\n"
-    "---Ornek 2---\n"
-    "Soru: BME280'i 5 Hz yap\n"
-    "Veri: Tool sonucu: bme280 sensoru 5 Hz olarak ayarlandi. Config'e kaydedildi.\n"
-    "Cevap: BME280 ornekleme hizi 5 Hz olarak ayarlandi.\n"
-    "\n"
-    "---Ornek 3---\n"
-    "Soru: Anomali var mi yorumla\n"
-    "Veri:\n"
-    "Son 60 saniye - Z ivmesi:\n"
-    "- Ortalama: 1.00 g\n"
-    "- Min: 0.95 g\n"
-    "- Max: 1.05 g\n"
-    "Durum: ANOMALI YOK (degerler statik gravity araliginda normal)\n"
-    "Cevap: Anomali yok. Z ivmesi statik durum icin normal araliktada.\n"
-    "\n"
-    "---Ornek 4---\n"
-    "Soru: Anomali var mi yorumla\n"
-    "Veri:\n"
-    "Son 60 saniye - Z ivmesi:\n"
-    "- Ortalama: 1.05 g\n"
-    "- Min: 0.40 g\n"
-    "- Max: 2.10 g\n"
-    "Durum: ANOMALI VAR (siddet: high, max 2.10 > esik 1.08)\n"
-    "Cevap: Anomali tespit edildi (yuksek siddet). Z ivmesi 2.10 g'ye cikmis, darbe veya hareket olabilir.\n"
-    "\n"
-    "---Ornek 5---\n"
-    "Soru: Heading nedir?\n"
-    "Veri:\n"
-    "Sensor verisi:\n"
-    "- yon (heading): 87.30 ° (Dogu)\n"
-    "- X manyetik: 0.30 G\n"
-    "Cevap: QMC5883L heading 87.3°, yaklasik Dogu yonu.\n"
-    "\n"
-    "Now write ONLY the 'Cevap:' line in Turkish. Do NOT repeat the examples.";
+// KRITIK: Bu promptlar fine-tune dataset'indeki promptlarla
+// BIREBIR AYNI olmali. Model bu metinlerle egitildi; tek kelime
+// farki bile davranisi bozar. Degistirmeden once dataset'i kontrol et.
+// ============================================================
 
-static const char* SYSPROMPT_CHAT_TR =
-    "You are a sensor assistant. Sensors: BME280 (sicaklik/nem/basinc), "
-    "MPU6500 (ivme/gyro), QMC5883L (manyetik/heading). "
-    "Reply briefly in Turkish to greetings or general questions.";
+// --- Tool sonucu varsa: sensor verisi formatlama modu ---
+// Dataset: 3128 ornek bu prompt'la egitildi
+static const char* SYSPROMPT_SENSOR =
+    "Sen sensor asistanisin. Sana sensor verisi gelir, "
+    "Turkce 1-2 cumle cevap ver. "
+    "Sayilari oldugu gibi kullan, uydurma. "
+    "Sensorler: BME280 (sicaklik/nem/basinc), "
+    "MPU6500 (ivme/gyro), QMC5883L (manyetik/heading).";
+
+// --- Serbest sohbet modu (tool eslesmedi, teknik degil) ---
+// Dataset: 493 ornek bu prompt'la egitildi
+static const char* SYSPROMPT_CHAT =
+    "Sen Muhtas sensor sisteminin asistanisin. "
+    "Kullanici sohbet etmek istediginde samimi ve kisa cevap ver. "
+    "Sensor verisi yoksa genel bilginle yardimci ol.";
+
+// --- Teknik soru modu (sensorler/elektronik/gomulu sistem bilgisi) ---
+// Dataset: 407 ornek bu prompt'la egitildi
+static const char* SYSPROMPT_TECH =
+    "Sen Muhtas sensor sisteminin teknik asistanisin. "
+    "Sensorler, elektronik ve gomulu sistemler hakkinda Turkce teknik bilgi ver. "
+    "Kisa ve anlasilir cevapla.";
+
+// ============================================================
+// TEKNIK SORU TESPITI
+// Sensor intent eslesmedi; soru teknik bilgi mi yoksa sohbet mi?
+// Teknik ise SYSPROMPT_TECH, degilse SYSPROMPT_CHAT kullan.
+// ============================================================
+static bool is_technical_question(const std::string& msg) {
+    // Turkce karakterleri kabaca sadelestir (lowercase + ascii yaklasimi)
+    std::string norm;
+    norm.reserve(msg.size());
+    for (size_t i = 0; i < msg.size();) {
+        unsigned char c = (unsigned char)msg[i];
+        if (c < 0x80) { norm += (char)std::tolower(c); i++; }
+        else if (c < 0xE0 && i + 1 < msg.size()) {
+            // 2-byte UTF-8: yaygin TR karakterleri
+            std::string ch = msg.substr(i, 2);
+            if      (ch == "\xC4\xB1" || ch == "\xC4\xB0") norm += 'i';
+            else if (ch == "\xC3\xA7" || ch == "\xC3\x87") norm += 'c';
+            else if (ch == "\xC4\x9F" || ch == "\xC4\x9E") norm += 'g';
+            else if (ch == "\xC3\xB6" || ch == "\xC3\x96") norm += 'o';
+            else if (ch == "\xC5\x9F" || ch == "\xC5\x9E") norm += 's';
+            else if (ch == "\xC3\xBC" || ch == "\xC3\x9C") norm += 'u';
+            else norm += ' ';
+            i += 2;
+        } else { i += (c < 0xF0) ? 3 : 4; }
+    }
+
+    // Once VERI SORGUSU kaliplarini dpe: "ne durumda", "kac", "nasil"
+    // (bunlar canli veri ister, teknik bilgi degil). Bu kaliplar varsa
+    // teknik soru DEGIL -> IntentRouter veri ceksin.
+    static const std::regex data_query_re(
+        R"(ne durumda|kac derece|kac |durumu ne|nasil gidiyor|)"
+        R"(simdi|su an|anlik|guncel|olcum|deger ne|son )",
+        std::regex_constants::icase);
+    if (std::regex_search(norm, data_query_re)) return false;
+
+    // Bilgi/aciklama isteyen kaliplar: "nedir", "ne ise yarar", "nasil calisir"
+    static const std::regex info_re(
+        R"(nedir|ne ise yarar|ne olcer|nasil calis|acikla|anlat|)"
+        R"(ne demek|farki ne|nasil kalibre|neden kullan)",
+        std::regex_constants::icase);
+    bool wants_info = std::regex_search(norm, info_re);
+
+    // Teknik konu anahtar kelimeleri
+    static const std::regex tech_topic_re(
+        R"(bme280|mpu6500|mpu6050|qmc5883|i2c|spi|uart|gpio|)"
+        R"(ivmeolcer|jiroskop|gyroskop|manyetometre|barometre|protokol|)"
+        R"(heading|pascal|hpa|gauss|ornekleme frekans|register|veri yolu|)"
+        R"(cozunurluk|sensor nas|sensor ne)",
+        std::regex_constants::icase);
+    bool tech_topic = std::regex_search(norm, tech_topic_re);
+
+    // Teknik soru = bilgi istegi VE teknik konu birlikte olmali
+    return wants_info && tech_topic;
+}
+
+// ============================================================
+// TR normalize yardimcisi (lowercase + ascii)
+// ============================================================
+static std::string tr_normalize(const std::string& msg) {
+    std::string norm;
+    norm.reserve(msg.size());
+    for (size_t i = 0; i < msg.size();) {
+        unsigned char c = (unsigned char)msg[i];
+        if (c < 0x80) { norm += (char)std::tolower(c); i++; }
+        else if (c < 0xE0 && i + 1 < msg.size()) {
+            std::string ch = msg.substr(i, 2);
+            if      (ch == "\xC4\xB1" || ch == "\xC4\xB0") norm += 'i';
+            else if (ch == "\xC3\xA7" || ch == "\xC3\x87") norm += 'c';
+            else if (ch == "\xC4\x9F" || ch == "\xC4\x9E") norm += 'g';
+            else if (ch == "\xC3\xB6" || ch == "\xC3\x96") norm += 'o';
+            else if (ch == "\xC5\x9F" || ch == "\xC5\x9E") norm += 's';
+            else if (ch == "\xC3\xBC" || ch == "\xC3\x9C") norm += 'u';
+            else norm += ' ';
+            i += 2;
+        } else { i += (c < 0xF0) ? 3 : 4; }
+    }
+    return norm;
+}
+
+// ============================================================
+// NEGATIF / SINIR TESPITI
+// IntentRouter'dan ONCE calisir. Olmayan sensor, saglik tavsiyesi
+// veya alakasiz soru ise sensor verisi cekmeyi engelle, modele dogru
+// reddi ogretilmis prompt ile gonder.
+// Donen deger: 0=negatif degil, 1=olmayan sensor, 2=saglik, 3=alakasiz
+// ============================================================
+static int detect_negative(const std::string& msg) {
+    std::string norm = tr_normalize(msg);
+
+    // --- TIP 1: OLMAYAN SENSOR/METRIK ---
+    // Sistemde olmayan olcumler. "hava kalitesi" -> "hava" sensor zannedilmesin.
+    static const std::regex missing_sensor_re(
+        R"(hava kalite|co2|karbondioksit|gaz |gaz olc|isik |aydinlik|lux|)"
+        R"(ses |gurultu|desibel|mesafe|uzaklik|gps|konum|koordinat|)"
+        R"(kalp |nabiz|nabiz|kamera|goruntu|radyasyon|uv |ph |toz |partikul)",
+        std::regex_constants::icase);
+    if (std::regex_search(norm, missing_sensor_re)) return 1;
+
+    // --- TIP 2: SAGLIK / GUVENLIK TAVSIYESI ---
+    static const std::regex health_re(
+        R"(hasta ol|hasta mi|saglik|hastalan|ustum|tehlikeli mi.*saglik|)"
+        R"(ilac al|doktora|hastane|olur muyum|zararli mi|zarar verir mi|)"
+        R"(guvende miyim|risk var mi.*saglik)",
+        std::regex_constants::icase);
+    if (std::regex_search(norm, health_re)) return 2;
+
+    // --- TIP 3: ALAKASIZ (gelecek tahmini, genel kultur disi) ---
+    static const std::regex irrelevant_re(
+        R"(piyango|loto|sayisal|kim kazan|mac skor|borsa|dolar kac|)"
+        R"(yarin ne olacak|gelecek|fal |burc |ruya)",
+        std::regex_constants::icase);
+    if (std::regex_search(norm, irrelevant_re)) return 3;
+
+    return 0;
+}
+
+// Negatif moda gore system prompt sec
+static const char* negative_sysprompt(int neg_type) {
+    if (neg_type == 2) {
+        // Saglik: tavsiye verme prompt'u
+        return "Sen sensor asistanisin. Sana sensor verisi gelir, "
+               "Turkce 1-2 cumle cevap ver. Saglik veya guvenlik tavsiyesi verme, "
+               "sadece sensor verisini bildir.";
+    }
+    // Olmayan sensor ve alakasiz icin sohbet/red prompt'u
+    return SYSPROMPT_CHAT;
+}
 
 // ============================================================
 // MAIN
@@ -176,12 +271,13 @@ int main() {
         nlohmann::json payload = {
             {"model", "local"},
             {"messages", {
-                {{"role","system"}, {"content", SYSPROMPT_INTERPRET_TR}},
+                {{"role","system"}, {"content", SYSPROMPT_SENSOR}},
                 {{"role","user"},   {"content", "ping"}}
             }},
             {"max_tokens",   1},
             {"temperature",  0.1},
-            {"cache_prompt", true}
+            {"cache_prompt", true},
+            {"chat_template_kwargs", {{"enable_thinking", false}}}
         };
 
         auto t0 = std::chrono::steady_clock::now();
@@ -338,7 +434,21 @@ int main() {
                     return sink.write(s.data(), s.size());
                 };
 
+                // Teknik soru, sensor sorgusuna ONCELIKLI kontrol edilir.
+                // "BME280 nedir" gibi sorularda IntentRouter "bme" gorup
+                // get_current tetikler; ama bu bir bilgi sorusu, veri sorgusu degil.
+                // Teknik soru kalibi varsa intent'i bastir, teknik moda yonlendir.
+                bool force_tech = is_technical_question(user_msg);
+
+                // Negatif/sinir tespiti: olmayan sensor, saglik tavsiyesi, alakasiz.
+                // Teknik sorudan once gelir cunku "hava kalitesi" gibi sorular
+                // ne teknik ne de gercek veri sorgusudur.
+                int neg_type = force_tech ? 0 : detect_negative(user_msg);
+
                 auto intent = IntentRouter::parse(user_msg, last_sensor);
+                if (force_tech || neg_type != 0) {
+                    intent.is_tool = false;  // veri cekme; bilgi ver / reddet
+                }
 
                 json tool_result;
                 std::string tool_text_for_llm;
@@ -364,30 +474,64 @@ int main() {
                     }
                 }
 
-                std::string sys_prompt, user_for_llm;
+                std::string user_for_llm;
+                const char* sysprompt;
+                bool is_sensor_mode = false;
                 if (intent.is_tool) {
-                    sys_prompt = SYSPROMPT_INTERPRET_TR;
-                    // Eski format - 0.5B'nin completion zihniyeti icin
+                    // Tool sonucu var: sensor verisi formatla
+                    sysprompt    = SYSPROMPT_SENSOR;
+                    is_sensor_mode = true;
                     user_for_llm =
                         "Soru: " + user_msg + "\n"
                         "Veri:\n" + tool_text_for_llm + "\n"
                         "Cevap:";
+                } else if (neg_type != 0) {
+                    // Negatif/sinir: olmayan sensor, saglik, alakasiz
+                    sysprompt = negative_sysprompt(neg_type);
+                    if (neg_type == 1) {
+                        // Olmayan sensor: modele neyin OLMADIGINI ve neyin
+                        // oldugunu acikca soyle ki dogru reddetsin.
+                        user_for_llm =
+                            "Soru: " + user_msg + "\n"
+                            "Veri:\nBu olcum icin sensor yok. "
+                            "Mevcut sensorler: BME280 (sicaklik/nem/basinc), "
+                            "MPU6500 (ivme/gyro), QMC5883L (manyetik/heading).\n"
+                            "Cevap:";
+                    } else {
+                        user_for_llm = "Soru: " + user_msg + "\nCevap:";
+                    }
+                } else if (force_tech) {
+                    // Teknik soru: teknik prompt
+                    sysprompt    = SYSPROMPT_TECH;
+                    user_for_llm = "Soru: " + user_msg + "\nCevap:";
                 } else {
-                    sys_prompt = SYSPROMPT_CHAT_TR;
-                    user_for_llm = user_msg;
+                    // Serbest sohbet
+                    sysprompt    = SYSPROMPT_CHAT;
+                    user_for_llm = "Soru: " + user_msg + "\nCevap:";
                 }
+
+                // Sampling: sensor modunda determinist (sayilar dogru olsun),
+                // sohbet/teknik modda biraz daha gevsek (dogal Turkce cumle).
+                double  temp      = is_sensor_mode ? 0.2  : 0.5;
+                double  rep_pen   = is_sensor_mode ? 1.15 : 1.05;
+                double  top_p_v   = is_sensor_mode ? 0.9  : 0.92;
+                int     max_tok   = is_sensor_mode ? 120  : 160;
 
                 json payload = {
                     {"model", "local"},
                     {"messages", {
-                        {{"role","system"}, {"content", sys_prompt}},
+                        {{"role","system"}, {"content", sysprompt}},
                         {{"role","user"},   {"content", user_for_llm}}
                     }},
-                    {"stream",       true},
-                    {"temperature",  0.2},
-                    {"max_tokens",   150},
-                    {"cache_prompt", true},
-                    {"stop", {"\n\nSoru:", "---Ornek", "Soru:"}}
+                    {"stream",         true},
+                    {"temperature",    temp},
+                    {"max_tokens",     max_tok},
+                    {"cache_prompt",   true},
+                    {"repeat_penalty", rep_pen},
+                    {"top_p",          top_p_v},
+                    {"top_k",          40},
+                    {"chat_template_kwargs", {{"enable_thinking", false}}},
+                    {"stop", {"<|im_end|>", "\nSoru:", "Soru:", "\nUser:", "\nKullanici:"}}
                 };
 
                 httplib::Client cli(LLAMA_HOST, LLAMA_PORT);
@@ -443,7 +587,7 @@ int main() {
 
     std::cout << "Dashboard: http://" << DASHBOARD_HOST << ":" << DASHBOARD_PORT
               << " (mode=" << sensors.mode() << ")\n";
-    std::cout << "Chat: IntentRouter + Analyzer + Trend + LLM-as-Interpreter (5 few-shot, 0.5B opt)\n";
+    std::cout << "Chat: IntentRouter + Analyzer + Trend + Fine-tuned LLM (Qwen3-1.7B)\n";
     std::cout.flush();
 
     bool ok = server.listen(DASHBOARD_HOST, DASHBOARD_PORT);
