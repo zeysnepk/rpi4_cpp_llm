@@ -84,6 +84,8 @@ static const char* SYSPROMPT_SENSOR =
     "Sen sensor asistanisin. Sana sensor verisi gelir, "
     "Turkce 1-2 cumle cevap ver. "
     "Sayilari oldugu gibi kullan, uydurma. "
+    "Metrik tanimlama yapma (nem nedir, ivme nedir diye aciklama), "
+    "sadece degeri ve durumu bildir. "
     "Sensorler: BME280 (sicaklik/nem/basinc), "
     "MPU6500 (ivme/gyro), QMC5883L (manyetik/heading).";
 
@@ -505,9 +507,26 @@ int main() {
                     sysprompt    = SYSPROMPT_TECH;
                     user_for_llm = "Soru: " + user_msg + "\nCevap:";
                 } else {
-                    // Serbest sohbet
-                    sysprompt    = SYSPROMPT_CHAT;
-                    user_for_llm = "Soru: " + user_msg + "\nCevap:";
+                    // "Hangi sensorler var?" tip sorgu → doğru liste enjekte et
+                    std::string norm_msg = tr_normalize(user_msg);
+                    static const std::regex sensor_list_re(
+                        R"(hangi sensor|sensor.*var|sensor.*neler|ne.*sensor|sistemde.*ne|kac sensor)",
+                        std::regex_constants::icase);
+                    if (std::regex_search(norm_msg, sensor_list_re)) {
+                        sysprompt    = SYSPROMPT_SENSOR;
+                        user_for_llm =
+                            "Soru: " + user_msg + "\n"
+                            "Bilgi: Sistemde 3 sensor var: "
+                            "BME280 (sicaklik, nem, basinc), "
+                            "MPU6500 (ivme, jiroskop), "
+                            "QMC5883L (manyetik-alan, heading, pusula). "
+                            "Baska sensor yok.\n"
+                            "Cevap:";
+                    } else {
+                        // Serbest sohbet
+                        sysprompt    = SYSPROMPT_CHAT;
+                        user_for_llm = "Soru: " + user_msg + "\nCevap:";
+                    }
                 }
 
                 // Sampling: sensor modunda determinist (sayilar dogru olsun),

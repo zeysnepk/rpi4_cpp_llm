@@ -137,6 +137,107 @@ IntentRouter::Intent IntentRouter::parse(const std::string& msg_tr,
                                           const std::string& last_sensor_hint) {
     std::string norm = normalize(msg_tr);
 
+    // ----- 0a. GET CONFIG ("hangi değerleri değiştirebilirim", "tüm ayarlar") -----
+    {
+        static const std::regex re(
+            "hangi.*degis|ne.*degistirebil|ayarlar.*goster|tum.*ayar|"
+            "konfigurasyon|config.*goster|parametreler|esik.*listesi|"
+            "limit.*listesi|ne.*ayarlayabilirim|ne.*yapilandir",
+            std::regex_constants::icase);
+        if (std::regex_search(norm, re)) {
+            return {true, "get_config", json::object(), msg_tr};
+        }
+    }
+
+    // ----- 0b. SET THRESHOLD ("sıcaklık max 35 yap", "nem üst sınırını 70 yap") -----
+    {
+        // Önce min/max yön tespiti
+        bool want_max = norm.find("max")    != std::string::npos ||
+                        norm.find("ust")    != std::string::npos ||
+                        norm.find("tavan")  != std::string::npos ||
+                        norm.find("en faz") != std::string::npos ||
+                        norm.find("sinir")  != std::string::npos;
+        bool want_min = norm.find("min")    != std::string::npos ||
+                        norm.find("alt")    != std::string::npos ||
+                        norm.find("zemin")  != std::string::npos ||
+                        norm.find("en az")  != std::string::npos ||
+                        norm.find("asagi")  != std::string::npos;
+
+        // Eşik değiştirme fiili
+        static const std::regex thr_verb_re(
+            R"(esik|limit|sinir|tavan|zemin|threshold|esigi|limiti|siniri)",
+            std::regex_constants::icase);
+        bool is_threshold = std::regex_search(norm, thr_verb_re) || (want_max || want_min);
+
+        // Sayısal değer
+        static const std::regex val_re(R"((-?\d+(?:\.\d+)?))");
+        std::smatch val_m;
+
+        if (is_threshold && std::regex_search(norm, val_m, val_re)) {
+            double val = std::stod(val_m[1].str());
+
+            // Metric tespiti (esik için daha geniş eşleşme)
+            std::string metric_key;
+            if (norm.find("sicak") != std::string::npos || norm.find("temp") != std::string::npos)
+                metric_key = "bme280.temperature_c";
+            else if (norm.find("nem") != std::string::npos || norm.find("humid") != std::string::npos)
+                metric_key = "bme280.humidity_pct";
+            else if (norm.find("basinc") != std::string::npos || norm.find("press") != std::string::npos)
+                metric_key = "bme280.pressure_hpa";
+            else if (norm.find("mpu sicak") != std::string::npos || norm.find("islemci") != std::string::npos)
+                metric_key = "mpu6050.temp_c";
+            else if ((norm.find("ivme") != std::string::npos || norm.find("accel") != std::string::npos) &&
+                      norm.find(".x") != std::string::npos)
+                metric_key = "mpu6050.accel_g.x";
+            else if ((norm.find("ivme") != std::string::npos || norm.find("accel") != std::string::npos) &&
+                      norm.find(".y") != std::string::npos)
+                metric_key = "mpu6050.accel_g.y";
+            else if ((norm.find("ivme") != std::string::npos || norm.find("accel") != std::string::npos))
+                metric_key = "mpu6050.accel_g.z";
+            else if (norm.find("gyro") != std::string::npos || norm.find("jiro") != std::string::npos)
+                metric_key = "mpu6050.gyro_dps.x";
+            else if (norm.find("heading") != std::string::npos || norm.find("pusula") != std::string::npos)
+                metric_key = "qmc5883l.heading_deg";
+
+            if (!metric_key.empty()) {
+                json args = {{"metric", metric_key}};
+                // Eğer sadece max ya da min keyword'ü varsa onu set et;
+                // ikisi de varsa veya hiçbiri yoksa hem min hem max'ı simetrik set et.
+                if (want_max && !want_min)       args["max"] = val;
+                else if (want_min && !want_max)  args["min"] = val;
+                else {
+                    // "sıcaklık eşiği 35 yap" → max=35 varsayılan
+                    args["max"] = val;
+                }
+                return {true, "set_threshold", args, msg_tr};
+            }
+        }
+    }
+
+    // ----- 0c. SET SENSOR ENABLED ("bme280 kapat", "mpu aç") -----
+    {
+        static const std::regex disable_re(
+            R"(\bkapat\b|\bdurdur\b|\bdisable\b|\bdevre\s*dis\b)",
+            std::regex_constants::icase);
+        static const std::regex enable_re(
+            R"(\bac\b|\bacik\b|\bbasla\b|\benable\b|\baktif\s*et\b|\bdevreye\s*al\b)",
+            std::regex_constants::icase);
+        bool want_disable = std::regex_search(norm, disable_re);
+        bool want_enable  = std::regex_search(norm, enable_re);
+
+        if (want_disable || want_enable) {
+            std::string sensor_en;
+            if (norm.find("bme") != std::string::npos)       sensor_en = "bme280";
+            else if (norm.find("mpu") != std::string::npos)  sensor_en = "mpu6050";
+            else if (norm.find("qmc") != std::string::npos)  sensor_en = "qmc5883l";
+
+            if (!sensor_en.empty()) {
+                return {true, "set_sensor_enabled",
+                        {{"sensor", sensor_en}, {"enabled", !want_disable}}, msg_tr};
+            }
+        }
+    }
+
     // ----- 1a. SET SAMPLE RATE (sensor + hz) -----
     {
         std::regex re(

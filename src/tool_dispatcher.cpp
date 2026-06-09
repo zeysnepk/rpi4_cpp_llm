@@ -74,9 +74,12 @@ json ToolDispatcher::get_tool_definitions() const {
 // ============================================================
 json ToolDispatcher::execute(const std::string& name, const json& args) {
     try {
-        if (name == "get_current")       return tool_get_current(args);
-        if (name == "get_history_stats") return tool_get_history_stats(args);
-        if (name == "set_sample_rate")   return tool_set_sample_rate(args);
+        if (name == "get_current")        return tool_get_current(args);
+        if (name == "get_history_stats")  return tool_get_history_stats(args);
+        if (name == "set_sample_rate")    return tool_set_sample_rate(args);
+        if (name == "set_threshold")      return tool_set_threshold(args);
+        if (name == "set_sensor_enabled") return tool_set_sensor_enabled(args);
+        if (name == "get_config")         return tool_get_config(args);
         return {{"error","Bilinmeyen tool: " + name}};
     } catch (const std::exception& e) {
         return {{"error", std::string("Tool hatasi: ") + e.what()}};
@@ -248,6 +251,102 @@ json ToolDispatcher::tool_set_sample_rate(const json& args) {
 }
 
 // ============================================================
+// SET THRESHOLD — bir metrigin anomali esik degerlerini degistirir
+// args: {metric: "bme280.temperature_c", min: 10, max: 40}
+// min/max ikisi birden veya yalnizca biri gelebilir.
+// ============================================================
+json ToolDispatcher::tool_set_threshold(const json& args) {
+    std::string metric = args.value("metric", "");
+    if (metric.empty()) return {{"error","metric parametresi eksik"}};
+
+    auto cfg = load_config();
+    if (!cfg.contains("thresholds") || !cfg["thresholds"].contains(metric)) {
+        return {{"error","Bilinmeyen metrik: " + metric +
+                 ". Gecerli metrikler: bme280.temperature_c, bme280.humidity_pct, "
+                 "bme280.pressure_hpa, mpu6050.accel_g.x/y/z, mpu6050.gyro_dps.x/y/z, "
+                 "mpu6050.temp_c, qmc5883l.heading_deg"}};
+    }
+
+    json& thr = cfg["thresholds"][metric];
+    json changed = json::object();
+
+    if (args.contains("min") && args["min"].is_number()) {
+        double old_min = thr.value("min", 0.0);
+        thr["min"] = args["min"].get<double>();
+        changed["min"] = {{"old", old_min}, {"new", thr["min"]}};
+    }
+    if (args.contains("max") && args["max"].is_number()) {
+        double old_max = thr.value("max", 0.0);
+        thr["max"] = args["max"].get<double>();
+        changed["max"] = {{"old", old_max}, {"new", thr["max"]}};
+    }
+
+    if (changed.empty()) return {{"error","min veya max degeri verilmedi"}};
+
+    if (!save_config(cfg)) {
+        return {{"ok",true},{"metric",metric},{"changed",changed},
+                {"warning","Bellekte degisti ama config'e yazilamadi"},{"persisted",false}};
+    }
+
+    // Analyzer'ı da güncelle (hot-reload: config yeniden okunacak)
+    return {{"ok",true},{"metric",metric},{"changed",changed},
+            {"label", thr.value("label","")},{"persisted",true}};
+}
+
+// ============================================================
+// SET SENSOR ENABLED — sensor'u ac/kapat
+// args: {sensor: "bme280", enabled: true/false}
+// ============================================================
+json ToolDispatcher::tool_set_sensor_enabled(const json& args) {
+    std::string sensor = args.value("sensor", "");
+    if (sensor.empty()) return {{"error","sensor parametresi eksik"}};
+    bool enabled = args.value("enabled", true);
+
+    auto cfg = load_config();
+    if (!cfg.contains("sensors") || !cfg["sensors"].contains(sensor)) {
+        return {{"error","Bilinmeyen sensor: " + sensor}};
+    }
+
+    bool was_enabled = cfg["sensors"][sensor].value("enabled", true);
+    cfg["sensors"][sensor]["enabled"] = enabled;
+
+    if (!save_config(cfg)) {
+        return {{"ok",true},{"sensor",sensor},{"enabled",enabled},
+                {"warning","Bellekte degisti ama config'e yazilamadi"},{"persisted",false}};
+    }
+
+    return {{"ok",true},{"sensor",sensor},{"enabled",enabled},
+            {"was_enabled",was_enabled},{"persisted",true}};
+}
+
+// ============================================================
+// GET CONFIG — tum ayarlanabilir parametreleri dondurur
+// ============================================================
+json ToolDispatcher::tool_get_config(const json& /*args*/) {
+    auto cfg = load_config();
+    json result = json::object();
+
+    // Sensor ornekleme hizlari ve durumlari
+    if (cfg.contains("sensors")) {
+        result["sensors"] = json::object();
+        for (auto& [s, info] : cfg["sensors"].items()) {
+            result["sensors"][s] = {
+                {"sample_rate_hz", info.value("sample_rate_hz", 0)},
+                {"enabled",        info.value("enabled", true)}
+            };
+        }
+    }
+
+    // Anomali esik degerleri
+    if (cfg.contains("thresholds")) {
+        result["thresholds"] = cfg["thresholds"];
+    }
+
+    result["mode"] = cfg.value("mode", "unknown");
+    return result;
+}
+
+// ============================================================
 // FORMAT_FOR_LLM
 // LLM'e ham JSON degil, yuvarlanmis Turkce metin gonderir.
 // ============================================================
@@ -311,6 +410,65 @@ std::string ToolDispatcher::format_for_llm(const std::string& tool_name,
     }
 
     std::ostringstream os;
+
+    if (tool_name == "set_threshold") {
+        if (tr.value("ok", false)) {
+            std::string metric = tr.value("metric","?");
+            std::string label  = tr.value("label", metric);
+            os << "Esik guncellendi: " << label << " (" << metric << ")";
+            if (tr.contains("changed")) {
+                const auto& ch = tr["changed"];
+                if (ch.contains("min"))
+                    os << " | min: " << ch["min"]["old"].dump()
+                       << " -> " << ch["min"]["new"].dump();
+                if (ch.contains("max"))
+                    os << " | max: " << ch["max"]["old"].dump()
+                       << " -> " << ch["max"]["new"].dump();
+            }
+            if (tr.value("persisted",false)) os << " | Config'e kaydedildi.";
+        } else {
+            os << "Tool basarisiz oldu.";
+        }
+        return os.str();
+    }
+
+    if (tool_name == "set_sensor_enabled") {
+        if (tr.value("ok", false)) {
+            std::string s = tr.value("sensor","?");
+            bool en = tr.value("enabled", true);
+            os << s << " sensoru " << (en ? "ACILDI" : "KAPATILDI") << ".";
+            if (tr.value("persisted",false)) os << " Config'e kaydedildi.";
+        } else {
+            os << "Tool basarisiz oldu.";
+        }
+        return os.str();
+    }
+
+    if (tool_name == "get_config") {
+        os << "Mevcut sistem ayarlari:\n\n";
+        os << "[Sensor Ornekleme Hizlari]\n";
+        if (tr.contains("sensors")) {
+            for (auto& [s, info] : tr["sensors"].items()) {
+                bool en = info.value("enabled", true);
+                os << "- " << s << ": " << info.value("sample_rate_hz",0) << " Hz"
+                   << (en ? "" : " (KAPALI)") << "\n";
+            }
+        }
+        os << "\n[Anomali Esik Degerleri]\n";
+        if (tr.contains("thresholds")) {
+            for (auto& [key, thr] : tr["thresholds"].items()) {
+                std::string lbl = thr.value("label", key);
+                // metric key'den birim bul
+                std::string u = unit_for(key.substr(key.find('.')+1));
+                double mn = thr.value("min", 0.0), mx = thr.value("max", 0.0);
+                os << "- " << lbl << " (" << key << "): "
+                   << "min=" << round_str(mn,1) << u
+                   << ", max=" << round_str(mx,1) << u << "\n";
+            }
+        }
+        os << "\n[Mod] " << tr.value("mode","?") << "\n";
+        return os.str();
+    }
 
     if (tool_name == "set_sample_rate") {
         if (tr.value("ok", false)) {

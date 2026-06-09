@@ -26,6 +26,9 @@ private:
     nlohmann::json tool_get_current(const nlohmann::json& args);
     nlohmann::json tool_get_history_stats(const nlohmann::json& args);
     nlohmann::json tool_set_sample_rate(const nlohmann::json& args);
+    nlohmann::json tool_set_threshold(const nlohmann::json& args);
+    nlohmann::json tool_set_sensor_enabled(const nlohmann::json& args);
+    nlohmann::json tool_get_config(const nlohmann::json& args);
 
     nlohmann::json load_config();
     bool save_config(const nlohmann::json& cfg);
