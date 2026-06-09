@@ -7,11 +7,11 @@
   "sensors": {
     "bme280": {
       "enabled": true,
-      "sample_rate_hz": 5
+      "sample_rate_hz": 20
     },
     "mpu6050": {
       "enabled": true,
-      "sample_rate_hz": 100
+      "sample_rate_hz": 60
     },
     "qmc5883l": {
       "enabled": true,
@@ -19,55 +19,55 @@
     }
   },
   "thresholds": {
-    "bme280.temperature_c": {
-      "label": "oda sicakligi",
-      "min": 15,
-      "max": 32
-    },
     "bme280.humidity_pct": {
       "label": "konfor nemi",
-      "min": 25,
-      "max": 75
+      "max": 75,
+      "min": 25
     },
     "bme280.pressure_hpa": {
       "label": "atmosfer basinci",
-      "min": 980,
-      "max": 1040
+      "max": 1040,
+      "min": 980
+    },
+    "bme280.temperature_c": {
+      "label": "oda sicakligi",
+      "max": 32,
+      "min": 15
     },
     "mpu6050.accel_g.x": {
       "label": "yatay X (statik)",
-      "min": -0.5,
-      "max": 0.5
+      "max": 0.5,
+      "min": -0.5
     },
     "mpu6050.accel_g.y": {
       "label": "yatay Y (statik)",
-      "min": -0.5,
-      "max": 0.5
+      "max": 0.5,
+      "min": -0.5
     },
     "mpu6050.accel_g.z": {
       "label": "statik gravity",
-      "min": 0.80,
-      "max": 1.20
+      "max": 1.2,
+      "min": 0.8
     },
     "mpu6050.gyro_dps.x": {
       "label": "statik gyro X",
-      "min": -10.0,
-      "max": 10.0
+      "max": 10.0,
+      "min": -10.0
     },
     "mpu6050.gyro_dps.y": {
       "label": "statik gyro Y",
-      "min": -10.0,
-      "max": 10.0
+      "max": 10.0,
+      "min": -10.0
     },
     "mpu6050.gyro_dps.z": {
       "label": "statik gyro Z",
-      "min": -10.0,
-      "max": 10.0
+      "max": 10.0,
+      "min": -10.0
     },
     "mpu6050.temp_c": {
       "label": "MPU ic sicaklik",
-      "min": 15,
-      "max": 60
+      "max": 60,
+      "min": 15
     }
   },
   "translator": {

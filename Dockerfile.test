@@ -1,0 +1,15 @@
+# ARM64 Ubuntu - RPi4 ile aynı ISA, M2 Mac'te native çalışır
+FROM --platform=linux/arm64 ubuntu:22.04
+
+RUN apt-get update -qq && apt-get install -y --no-install-recommends \
+    build-essential cmake libgpiod-dev git ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+COPY . .
+
+# Build
+RUN cmake -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build -- -j4
+
+# Sim modunda çalıştır (sensör donanımı yok, ama build + başlangıç testi için yeterli)
+CMD ["./build/dashboard", "config.rpi.json"]

@@ -1,0 +1,7 @@
+models/
+build/
+.git/
+*.jsonl
+*.gguf
+__pycache__/
+*.pyc

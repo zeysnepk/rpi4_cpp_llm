@@ -27,13 +27,12 @@ fi
 # Fine-tuned Qwen3.5-0.8B: 800 ornek sensor datasetiyle egitilmis.
 # RPi4'te ~4-5 tok/s, ~500MB GGUF.
 # ============================================================
-MODEL_FILE="qwen3-1.7b.Q4_K_M_v2.gguf"
+MODEL_FILE="Qwen3-1.7B-Q4_K_M.gguf"   # Qwen3-1.7B-Instruct (official, native tool calling)
 
 # Alternatifler:
-# MODEL_FILE="Qwen2.5-0.5B-Instruct-Q4_K_M.gguf"        # eski, hizli ama TR kalitesi dusuk
-# MODEL_FILE="qwen_sensor_v3c_q4_k_m.gguf"              # V3 1.5B continue (yavas ama OK)
-# MODEL_FILE="qwen2.5-3b-instruct-q4_k_m.gguf"
-# MODEL_FILE="Llama-3.2-3B-Instruct-Q4_K_M.gguf"
+# MODEL_FILE="qwen3-1.7b.Q4_K_M.gguf"                   # v5 fine-tune (tool calling bozuk)
+# MODEL_FILE="qwen3-1.7b.Q4_K_M_v2.gguf"                # v2 fine-tune (Soru/Veri/Cevap)
+# MODEL_FILE="Qwen2.5-0.5B-Instruct-Q4_K_M.gguf"        # eski, TR kalitesi dusuk
 
 MODEL="$MODEL_DIR/$MODEL_FILE"
 
