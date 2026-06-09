@@ -92,20 +92,35 @@ json ToolDispatcher::execute(const std::string& name, const json& args) {
 json ToolDispatcher::tool_get_current(const json& args) {
     std::string sensor = args.at("sensor");
     auto latest = sensors_.latest_all();
+    auto cfg = load_config();
 
     if (sensor == "all") {
-        // Hepsi icin analiz ekle
-        for (auto& [name, info] : latest.items()) {
-            if (!info.contains("data") || info["data"].is_null()) continue;
-            json analyses = json::object();
-            for (auto& [metric, value] : info["data"].items()) {
-                if (!value.is_number()) continue;
-                auto a = analyzer_.analyze(name, metric, value.get<double>());
-                if (!a.empty()) analyses[metric] = a;
+        // Devre disi sensorleri cikart
+        for (auto it = latest.begin(); it != latest.end(); ) {
+            bool en = true;
+            if (cfg.contains("sensors") && cfg["sensors"].contains(it.key()))
+                en = cfg["sensors"][it.key()].value("enabled", true);
+            if (!en) it = latest.erase(it);
+            else {
+                if (it.value().contains("data") && !it.value()["data"].is_null()) {
+                    json analyses = json::object();
+                    for (auto& [metric, value] : it.value()["data"].items()) {
+                        if (!value.is_number()) continue;
+                        auto a = analyzer_.analyze(it.key(), metric, value.get<double>());
+                        if (!a.empty()) analyses[metric] = a;
+                    }
+                    if (!analyses.empty()) it.value()["analysis"] = analyses;
+                }
+                ++it;
             }
-            if (!analyses.empty()) info["analysis"] = analyses;
         }
         return latest;
+    }
+
+    // Tek sensor: enabled kontrolu
+    if (cfg.contains("sensors") && cfg["sensors"].contains(sensor)) {
+        if (!cfg["sensors"][sensor].value("enabled", true))
+            return {{"error", sensor + " sensoru kapali. Once '" + sensor + " ac' diyerek etkinlestir."}};
     }
 
     if (!latest.contains(sensor))
@@ -160,6 +175,13 @@ json ToolDispatcher::tool_get_history_stats(const json& args) {
     std::string sensor = args.at("sensor");
     std::string metric = args.at("metric");
     int seconds = args.at("seconds");
+
+    // Kapali sensor kontrolu
+    auto cfg = load_config();
+    if (cfg.contains("sensors") && cfg["sensors"].contains(sensor)) {
+        if (!cfg["sensors"][sensor].value("enabled", true))
+            return {{"error", sensor + " sensoru kapali. Once '" + sensor + " ac' diyerek etkinlestir."}};
+    }
 
     auto hist = sensors_.history(sensor, seconds);
 

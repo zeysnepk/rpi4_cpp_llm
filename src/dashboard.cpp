@@ -90,17 +90,20 @@ static const char* SYSPROMPT_SENSOR =
     "MPU6500 (ivme/gyro), QMC5883L (manyetik/heading).";
 
 // --- Serbest sohbet modu (tool eslesmedi, teknik degil) ---
-// Dataset: 493 ornek bu prompt'la egitildi
 static const char* SYSPROMPT_CHAT =
     "Sen Muhtas sensor sisteminin asistanisin. "
-    "Kullanici sohbet etmek istediginde samimi ve kisa cevap ver. "
-    "Sensor verisi yoksa genel bilginle yardimci ol.";
+    "Kisa ve samimi Turkce cevap ver. "
+    "Sensor verisi yoksa kisa yardimci ol. "
+    "Konu disi sorularda (hava, saat, film vb.) 'Bu konuda yardim edemiyorum.' de. "
+    "Konusma gecmisini hatirlamazsin, dogrudan belirt. "
+    "'Ben kimim' gibi sorularda 'Sen bu sistemin operatorisin.' de.";
 
 // --- Teknik soru modu (sensorler/elektronik/gomulu sistem bilgisi) ---
 // Dataset: 407 ornek bu prompt'la egitildi
 static const char* SYSPROMPT_TECH =
     "Sen Muhtas sensor sisteminin teknik asistanisin. "
     "Sensorler, elektronik ve gomulu sistemler hakkinda Turkce teknik bilgi ver. "
+    "Kod istenir ise kisa, calisir bir kod blogu ver. "
     "Kisa ve anlasilir cevapla.";
 
 // ============================================================
@@ -138,10 +141,11 @@ static bool is_technical_question(const std::string& msg) {
         std::regex_constants::icase);
     if (std::regex_search(norm, data_query_re)) return false;
 
-    // Bilgi/aciklama isteyen kaliplar: "nedir", "ne ise yarar", "nasil calisir"
+    // Bilgi/aciklama isteyen kaliplar: "nedir", "nasil calisir", "kod ver" vb.
     static const std::regex info_re(
         R"(nedir|ne ise yarar|ne olcer|nasil calis|acikla|anlat|)"
-        R"(ne demek|farki ne|nasil kalibre|neden kullan)",
+        R"(ne demek|farki ne|nasil kalibre|neden kullan|)"
+        R"(kod.*ver|ornek.*ver|kod.*goster|ornek.*goster|versene|yazabilir|nasil yazil)",
         std::regex_constants::icase);
     bool wants_info = std::regex_search(norm, info_re);
 
@@ -150,7 +154,8 @@ static bool is_technical_question(const std::string& msg) {
         R"(bme280|mpu6500|mpu6050|qmc5883|i2c|spi|uart|gpio|)"
         R"(ivmeolcer|jiroskop|gyroskop|manyetometre|barometre|protokol|)"
         R"(heading|pascal|hpa|gauss|ornekleme frekans|register|veri yolu|)"
-        R"(cozunurluk|sensor nas|sensor ne)",
+        R"(cozunurluk|sensor nas|sensor ne|)"
+        R"(micropython|arduino|raspberry|python|linux|embedded|gomulu)",
         std::regex_constants::icase);
     bool tech_topic = std::regex_search(norm, tech_topic_re);
 
@@ -371,8 +376,14 @@ int main() {
         }.dump(), "application/json");
     });
 
-    server.Get("/api/sensors", [&sensors](const httplib::Request&, httplib::Response& res) {
-        res.set_content(sensors.latest_all().dump(), "application/json");
+    server.Get("/api/sensors", [&sensors, config_path](const httplib::Request&, httplib::Response& res) {
+        auto data = sensors.latest_all();
+        auto cfg2 = load_config(config_path);
+        if (cfg2.contains("sensors")) {
+            for (auto& [k, info] : cfg2["sensors"].items())
+                if (!info.value("enabled", true)) data.erase(k);
+        }
+        res.set_content(data.dump(), "application/json");
     });
 
     server.Get("/api/sensors/history", [&sensors](const httplib::Request& req,
@@ -385,16 +396,21 @@ int main() {
         res.set_content(sensors.history(name, seconds).dump(), "application/json");
     });
 
-    server.Get("/api/sensors/stream", [&sensors](const httplib::Request&,
+    server.Get("/api/sensors/stream", [&sensors, config_path](const httplib::Request&,
                                                  httplib::Response& res) {
         res.set_header("Cache-Control", "no-cache");
         res.set_header("X-Accel-Buffering", "no");
         res.set_chunked_content_provider("text/event-stream",
-            [&sensors](size_t, httplib::DataSink& sink) -> bool {
+            [&sensors, config_path](size_t, httplib::DataSink& sink) -> bool {
                 std::string hello = ": connected\nretry: 2000\n\n";
                 if (!sink.write(hello.data(), hello.size())) return true;
                 while (sink.is_writable()) {
                     auto data = sensors.latest_all();
+                    auto cfg2 = load_config(config_path);
+                    if (cfg2.contains("sensors")) {
+                        for (auto& [k, info] : cfg2["sensors"].items())
+                            if (!info.value("enabled", true)) data.erase(k);
+                    }
                     std::string msg = "data: " + data.dump() + "\n\n";
                     if (!sink.write(msg.data(), msg.size())) break;
                     std::this_thread::sleep_for(std::chrono::milliseconds(200));
@@ -435,6 +451,40 @@ int main() {
                     std::string s = "data: " + ev.dump() + "\n\n";
                     return sink.write(s.data(), s.size());
                 };
+
+                // LLM'i tamamen bypass ederek sabit cevap gonder.
+                auto send_direct = [&](const std::string& text) {
+                    send_event({{"type","content_delta"}, {"text", text}});
+                    send_event({{"type","done"}});
+                    std::string d = "data: [DONE]\n\n";
+                    sink.write(d.data(), d.size());
+                    sink.done();
+                };
+
+                // ── ERKEN TESPITLER: LLM'e gitme, C++ cevap ver ──────────────
+                {
+                    std::string nq = tr_normalize(user_msg);
+
+                    // Konusma gecmisi sorusu → kesin bilgi yok, hallusinasyon riskli
+                    static const std::regex mem_re(
+                        R"(ilk ne sord|ne konust|onceki soru|beni hatirl|az once ne|)"
+                        R"(ne dedin|gecmis.*soru|neler konust|ne sordun|ne soyledim)",
+                        std::regex_constants::icase);
+                    if (std::regex_search(nq, mem_re)) {
+                        send_direct("Konusma gecmisimi hatirlamiyorum, her sohbet sifirdan basliyor. Yeni bir soru sorabilirsin.");
+                        return true;
+                    }
+
+                    // "aç" / "kapat" tek basina — hangi sensor belli degil
+                    static const std::regex bare_cmd_re(
+                        R"(^(ac|kapat|durdur|enable|disable|aktif\s*et|pasif\s*et)\s*[.!?]*$)",
+                        std::regex_constants::icase);
+                    if (std::regex_search(nq, bare_cmd_re)) {
+                        send_direct("Hangi sensoru kastediyorsun? (bme280, mpu6050 veya qmc5883l)");
+                        return true;
+                    }
+                }
+                // ──────────────────────────────────────────────────────────────
 
                 // Teknik soru, sensor sorgusuna ONCELIKLI kontrol edilir.
                 // "BME280 nedir" gibi sorularda IntentRouter "bme" gorup

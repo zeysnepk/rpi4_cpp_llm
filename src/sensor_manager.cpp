@@ -65,7 +65,9 @@ SensorManager::SensorManager(const nlohmann::json& config)
         auto cfg = config_["sensors"].value(key, nlohmann::json::object());
         bool enabled = cfg.value("enabled", false);
         int  rate    = cfg.value("sample_rate_hz", default_rate);
-        if (!enabled) {
+        // Sim modunda tum sensorler calisir; enabled flag sadece
+        // tool katmaninda filtreleme icin kullanilir.
+        if (!enabled && mode_ != "sim") {
             std::cout << "  " << key << ": disabled in config\n";
             return;
         }

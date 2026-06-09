@@ -251,7 +251,7 @@ for prompt in test_cases:
 # %% [8] LoRA adaptörünü kaydet -> doğrudan Drive (FINAL_DIR)
 # NEDEN: Bu, eğitimin "asıl ürünü". Yerel diske kaydedip oturum kapanırsa
 # (ör. uyandığında otomatik zaman aşımı tetiklenmişse) kaybolur.
-lora_dir = f"{FINAL_DIR}/qwen3-1.7b-sensor-v4-lora"
+lora_dir = f"{FINAL_DIR}/qwen3-1.7b-sensor-v5-lora"
 model.save_pretrained(lora_dir)
 tokenizer.save_pretrained(lora_dir)
 print(f"LoRA adaptoru kaydedildi -> {lora_dir}")
@@ -265,7 +265,7 @@ print(f"LoRA adaptoru kaydedildi -> {lora_dir}")
 # yapmak çok yavaşlar, hatta zaman zaman hata verir. Bu yüzden önce yerel
 # diske ("/content/...") çeviriyoruz, sonra SADECE bitmiş .gguf dosyasını
 # Drive'a kopyalıyoruz - hem hızlı hem güvenli.
-local_gguf_dir = "qwen3-1.7b-sensor-v4"
+local_gguf_dir = "qwen3-1.7b-sensor-v5"
 model.save_pretrained_gguf(
     local_gguf_dir,
     tokenizer,
