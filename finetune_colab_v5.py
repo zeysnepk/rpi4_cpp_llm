@@ -136,11 +136,8 @@ TOOLS = [
 def format_chat(examples):
     texts = []
     for messages in examples["messages"]:
-        # Qwen3 Jinja template'i "content": null'ı kabul etmiyor → "" yap.
-        # tool_calls içeren assistant mesajlarında content boş string olmalı.
-        clean = [{**m, "content": m.get("content") or ""} for m in messages]
         text = tokenizer.apply_chat_template(
-            clean,
+            messages,
             tools=TOOLS,                   # tool tanımları template'e enjekte edilir
             tokenize=False,
             add_generation_prompt=False,
