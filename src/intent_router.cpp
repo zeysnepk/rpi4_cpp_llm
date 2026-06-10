@@ -152,16 +152,13 @@ IntentRouter::Intent IntentRouter::parse(const std::string& msg_tr,
     // ----- 0b. SET THRESHOLD ("sıcaklık max 35 yap", "nem üst sınırını 70 yap") -----
     {
         // Önce min/max yön tespiti
-        // "sinir" tek başına max anlamına gelir AMA "alt sinir" bağlamında min.
-        bool has_alt  = norm.find("alt")    != std::string::npos;
-        bool has_sinir= norm.find("sinir")  != std::string::npos;
         bool want_max = norm.find("max")    != std::string::npos ||
                         norm.find("ust")    != std::string::npos ||
                         norm.find("tavan")  != std::string::npos ||
                         norm.find("en faz") != std::string::npos ||
-                        (has_sinir && !has_alt);  // "sınır" tek başına → max
+                        norm.find("sinir")  != std::string::npos;
         bool want_min = norm.find("min")    != std::string::npos ||
-                        has_alt                                   ||
+                        norm.find("alt")    != std::string::npos ||
                         norm.find("zemin")  != std::string::npos ||
                         norm.find("en az")  != std::string::npos ||
                         norm.find("asagi")  != std::string::npos;
@@ -220,7 +217,7 @@ IntentRouter::Intent IntentRouter::parse(const std::string& msg_tr,
     // ----- 0c. SET SENSOR ENABLED ("bme280 kapat", "mpu aç") -----
     {
         static const std::regex disable_re(
-            R"(\bkapat\b|\bdurdur\b|\bdisable\b|\bdevre\s*dis[i]?\b|\bbirak\b)",
+            R"(\bkapat\b|\bdurdur\b|\bdisable\b|\bdevre\s*dis\b)",
             std::regex_constants::icase);
         static const std::regex enable_re(
             R"(\bac\b|\bacik\b|\bbasla\b|\benable\b|\baktif\s*et\b|\bdevreye\s*al\b)",

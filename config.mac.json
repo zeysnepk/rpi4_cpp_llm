@@ -14,7 +14,7 @@
       "sample_rate_hz": 60
     },
     "qmc5883l": {
-      "enabled": true,
+      "enabled": false,
       "sample_rate_hz": 10
     }
   },
@@ -31,7 +31,7 @@
     },
     "bme280.temperature_c": {
       "label": "oda sicakligi",
-      "max": 35.0,
+      "max": 38.0,
       "min": 15
     },
     "mpu6050.accel_g.x": {
