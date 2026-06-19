@@ -23,7 +23,6 @@ add_executable(dashboard
     src/tool_dispatcher.cpp
     src/intent_router.cpp
     src/analyzer.cpp
-    src/translator.cpp
     src/gpio_power.cpp
     src/sensors/i2c_bus.cpp
     src/sensors/bme280.cpp

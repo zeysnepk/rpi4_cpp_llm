@@ -1,4 +1,3 @@
-#include "translator.hpp"
 #include "tool_dispatcher.hpp"
 #include "sensor_manager.hpp"
 #include "intent_router.hpp"
@@ -278,7 +277,6 @@ int main() {
         std::cout.flush();
     }).detach();
 
-    Translator     translator(cfg);
     Analyzer       analyzer(cfg);
     ToolDispatcher dispatcher(sensors, analyzer, config_path);
 
@@ -340,15 +338,6 @@ int main() {
             g_exit_code = EXIT_CODE_RESTART;
             if (g_server) g_server->stop();
         }).detach();
-    });
-
-    server.Get("/api/translator", [&translator](const httplib::Request&,
-                                                httplib::Response& res) {
-        if (translator.enabled() && !translator.available()) translator.refresh_status();
-        res.set_content(json{
-            {"enabled",   translator.enabled()},
-            {"available", translator.available()}
-        }.dump(), "application/json");
     });
 
     server.Get("/api/sensors", [&sensors](const httplib::Request&, httplib::Response& res) {
