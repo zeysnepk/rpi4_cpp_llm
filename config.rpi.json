@@ -1,26 +1,20 @@
 {
     "mode": "real",
-    "translator": {
-        "enabled": false,
-        "host": "127.0.0.1",
-        "port": 5000,
-        "timeout_ms": 8000
-    },
     "llm": {
         "temperature": 0.2,
         "max_tokens": 200
     },
     "thresholds": {
-        "bme280.temperature_c":  { "min": 15,    "max": 32,    "label": "oda sicakligi" },
-        "bme280.humidity_pct":   { "min": 25,    "max": 75,    "label": "konfor nemi" },
-        "bme280.pressure_hpa":   { "min": 980,   "max": 1040,  "label": "atmosfer basinci" },
-        "mpu6050.accel_g.x":     { "min": -0.5,  "max": 0.5,   "label": "yatay X (statik)" },
-        "mpu6050.accel_g.y":     { "min": -0.5,  "max": 0.5,   "label": "yatay Y (statik)" },
-        "mpu6050.accel_g.z":     { "min": 0.80,  "max": 1.20,  "label": "statik gravity" },
-        "mpu6050.gyro_dps.x":    { "min": -10.0, "max": 10.0,  "label": "statik gyro X" },
-        "mpu6050.gyro_dps.y":    { "min": -10.0, "max": 10.0,  "label": "statik gyro Y" },
-        "mpu6050.gyro_dps.z":    { "min": -10.0, "max": 10.0,  "label": "statik gyro Z" },
-        "mpu6050.temp_c":        { "min": 15,    "max": 60,    "label": "MPU ic sicaklik" }
+        "bme280.temperature_c":  { "min": 15,    "max": 32,    "label": "room temperature" },
+        "bme280.humidity_pct":   { "min": 25,    "max": 75,    "label": "comfort humidity" },
+        "bme280.pressure_hpa":   { "min": 980,   "max": 1040,  "label": "atmospheric pressure" },
+        "mpu6050.accel_g.x":     { "min": -0.5,  "max": 0.5,   "label": "X accel (static)" },
+        "mpu6050.accel_g.y":     { "min": -0.5,  "max": 0.5,   "label": "Y accel (static)" },
+        "mpu6050.accel_g.z":     { "min": 0.80,  "max": 1.20,  "label": "Z accel (gravity)" },
+        "mpu6050.gyro_dps.x":    { "min": -10.0, "max": 10.0,  "label": "gyro X (static)" },
+        "mpu6050.gyro_dps.y":    { "min": -10.0, "max": 10.0,  "label": "gyro Y (static)" },
+        "mpu6050.gyro_dps.z":    { "min": -10.0, "max": 10.0,  "label": "gyro Z (static)" },
+        "mpu6050.temp_c":        { "min": 15,    "max": 60,    "label": "MPU internal temperature" }
     },
     "sensors": {
         "power_pin": {

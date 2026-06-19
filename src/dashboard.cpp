@@ -398,7 +398,7 @@ int main() {
         }
 
         res.set_chunked_content_provider("text/event-stream",
-            [user_msg, last_sensor, &dispatcher](size_t, httplib::DataSink& sink) -> bool {
+            [user_msg, last_sensor, msgs, &dispatcher](size_t, httplib::DataSink& sink) -> bool {
 
                 auto send_event = [&sink](const json& ev) -> bool {
                     std::string s = "data: " + ev.dump() + "\n\n";
@@ -505,12 +505,17 @@ int main() {
                 double  top_p_v   = is_sensor_mode ? 0.9  : 0.92;
                 int     max_tok   = is_sensor_mode ? 120  : 160;
 
+                // Build multi-turn messages: system + history + enriched current user msg
+                json llm_messages = json::array();
+                llm_messages.push_back({{"role","system"}, {"content", sysprompt}});
+                for (size_t i = 0; i + 1 < msgs.size(); ++i) {
+                    llm_messages.push_back(msgs[i]);
+                }
+                llm_messages.push_back({{"role","user"}, {"content", user_for_llm}});
+
                 json payload = {
                     {"model", "local"},
-                    {"messages", {
-                        {{"role","system"}, {"content", sysprompt}},
-                        {{"role","user"},   {"content", user_for_llm}}
-                    }},
+                    {"messages", llm_messages},
                     {"stream",         true},
                     {"temperature",    temp},
                     {"max_tokens",     max_tok},
