@@ -82,6 +82,8 @@ static const char* SYSPROMPT_SENSOR =
     "Reply in 1-2 concise English sentences. "
     "Use the numbers exactly as provided — never fabricate or round differently. "
     "Do not define metrics (no 'humidity means...'); just report the value and status. "
+    "CRITICAL: Never say a setting was changed unless tool result data is present in the 'Data:' section. "
+    "If the user asks to do something but no Data is shown, tell them the exact 'set ...' command to type. "
     "Sensors available: BME280 (temperature/humidity/pressure), "
     "MPU6500 (accelerometer/gyroscope), QMC5883L (magnetometer/heading).";
 
@@ -96,7 +98,8 @@ static const char* SYSPROMPT_CHAT =
     "- Change sensor sample rate in Hz (requires 'set' keyword)\n"
     "Never mention capabilities you do not have (e.g. sensitivity tuning, storage settings, configuration menus). "
     "If a user asks what they can change or how to configure something, tell them to say 'what can I change?' to see the full list. "
-    "All changes require the word 'set' at the start of the command — if the user tries to change something without 'set', remind them to add it.";
+    "All changes require the word 'set' at the start of the command — if the user tries to change something without 'set', tell them the exact command to type (e.g. 'set mpu sample rate 100 hz'). "
+    "CRITICAL: Never say a setting was changed unless you see actual tool result data in the context. If you see [No tool was executed], it means nothing happened — do not lie about it.";
 
 // --- Technical question mode (sensors / electronics / embedded systems) ---
 static const char* SYSPROMPT_TECH =
@@ -482,7 +485,10 @@ int main() {
                 } else if (force_tech) {
                     // Technical question mode
                     sysprompt    = SYSPROMPT_TECH;
-                    user_for_llm = "Question: " + user_msg + "\nAnswer:";
+                    user_for_llm =
+                        "Question: " + user_msg + "\n"
+                        "[No tool was executed. Do not claim any setting was changed.]\n"
+                        "Answer:";
                 } else {
                     // "Which sensors are available?" → inject accurate list
                     std::string norm_msg = tr_normalize(user_msg);
@@ -500,9 +506,13 @@ int main() {
                             "No other sensors are present.\n"
                             "Answer:";
                     } else {
-                        // Free chat
+                        // Free chat — no tool executed
                         sysprompt    = SYSPROMPT_CHAT;
-                        user_for_llm = "Question: " + user_msg + "\nAnswer:";
+                        user_for_llm =
+                            "Question: " + user_msg + "\n"
+                            "[No tool was executed. Do not claim any setting was changed. "
+                            "If the user is trying to make a change, tell them the exact 'set ...' command to type.]\n"
+                            "Answer:";
                     }
                 }
 
