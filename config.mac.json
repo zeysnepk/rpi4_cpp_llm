@@ -7,22 +7,22 @@
   "sensors": {
     "bme280": {
       "enabled": true,
-      "sample_rate_hz": 20
+      "sample_rate_hz": 100
     },
     "mpu6050": {
       "enabled": true,
-      "sample_rate_hz": 60
+      "sample_rate_hz": 20
     },
     "qmc5883l": {
-      "enabled": false,
+      "enabled": true,
       "sample_rate_hz": 10
     }
   },
   "thresholds": {
     "bme280.humidity_pct": {
       "label": "konfor nemi",
-      "max": 75,
-      "min": 25
+      "max": 100.0,
+      "min": 20.0
     },
     "bme280.pressure_hpa": {
       "label": "atmosfer basinci",
@@ -52,7 +52,7 @@
     "mpu6050.gyro_dps.x": {
       "label": "statik gyro X",
       "max": 10.0,
-      "min": -10.0
+      "min": 0.0
     },
     "mpu6050.gyro_dps.y": {
       "label": "statik gyro Y",

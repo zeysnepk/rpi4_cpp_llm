@@ -80,9 +80,9 @@ json ToolDispatcher::execute(const std::string& name, const json& args) {
         if (name == "set_threshold")      return tool_set_threshold(args);
         if (name == "set_sensor_enabled") return tool_set_sensor_enabled(args);
         if (name == "get_config")         return tool_get_config(args);
-        return {{"error","Bilinmeyen tool: " + name}};
+        return {{"error","Unknown tool: " + name}};
     } catch (const std::exception& e) {
-        return {{"error", std::string("Tool hatasi: ") + e.what()}};
+        return {{"error", std::string("Tool error: ") + e.what()}};
     }
 }
 
@@ -92,24 +92,37 @@ json ToolDispatcher::execute(const std::string& name, const json& args) {
 json ToolDispatcher::tool_get_current(const json& args) {
     std::string sensor = args.at("sensor");
     auto latest = sensors_.latest_all();
+    auto cfg = load_config();
+
+    auto is_enabled = [&](const std::string& s) -> bool {
+        if (!cfg.contains("sensors") || !cfg["sensors"].contains(s)) return true;
+        return cfg["sensors"][s].value("enabled", true);
+    };
 
     if (sensor == "all") {
-        // Hepsi icin analiz ekle
-        for (auto& [name, info] : latest.items()) {
-            if (!info.contains("data") || info["data"].is_null()) continue;
-            json analyses = json::object();
-            for (auto& [metric, value] : info["data"].items()) {
-                if (!value.is_number()) continue;
-                auto a = analyzer_.analyze(name, metric, value.get<double>());
-                if (!a.empty()) analyses[metric] = a;
+        // Disabled sensor'lari filtrele, kalanlar icin analiz ekle
+        for (auto it = latest.begin(); it != latest.end(); ) {
+            if (!is_enabled(it.key())) { it = latest.erase(it); continue; }
+            auto& info = it.value();
+            if (info.contains("data") && !info["data"].is_null()) {
+                json analyses = json::object();
+                for (auto& [metric, value] : info["data"].items()) {
+                    if (!value.is_number()) continue;
+                    auto a = analyzer_.analyze(it.key(), metric, value.get<double>());
+                    if (!a.empty()) analyses[metric] = a;
+                }
+                if (!analyses.empty()) info["analysis"] = analyses;
             }
-            if (!analyses.empty()) info["analysis"] = analyses;
+            ++it;
         }
         return latest;
     }
 
+    if (!is_enabled(sensor))
+        return {{"error", sensor + " sensor is disabled. Enable it first."}};
+
     if (!latest.contains(sensor))
-        return {{"error","Sensor bulunamadi: " + sensor}};
+        return {{"error","Sensor not found: " + sensor}};
 
     auto out = latest[sensor];
     // Tek sensor: her metrigi analize tabi tut
@@ -161,6 +174,15 @@ json ToolDispatcher::tool_get_history_stats(const json& args) {
     std::string metric = args.at("metric");
     int seconds = args.at("seconds");
 
+    // Disabled sensor kontrolu
+    {
+        auto cfg = load_config();
+        if (cfg.contains("sensors") && cfg["sensors"].contains(sensor)) {
+            if (!cfg["sensors"][sensor].value("enabled", true))
+                return {{"error", sensor + " sensor is disabled. Enable it first."}};
+        }
+    }
+
     auto hist = sensors_.history(sensor, seconds);
 
     std::vector<double> ts_sec, vals;
@@ -179,8 +201,8 @@ json ToolDispatcher::tool_get_history_stats(const json& args) {
     }
 
     if (vals.empty()) {
-        return {{"error","Veri yok: " + sensor + "." + metric +
-                       " (son " + std::to_string(seconds) + " sn)"}};
+        return {{"error","No data: " + sensor + "." + metric +
+                       " (last " + std::to_string(seconds) + " sec)"}};
     }
 
     double sum  = std::accumulate(vals.begin(), vals.end(), 0.0);
@@ -193,13 +215,13 @@ json ToolDispatcher::tool_get_history_stats(const json& args) {
     double change_pct = (std::fabs(vals.front()) > 1e-9)
         ? (change / vals.front()) * 100.0 : 0.0;
 
-    // Trend yonu
+    // Trend direction
     double range = vmax - vmin;
     double slope_abs = std::fabs(slope);
     std::string direction;
-    if (range < 1e-6 || slope_abs * seconds < range * 0.05) direction = "sabit";
-    else if (slope > 0) direction = "artiyor";
-    else                direction = "azaliyor";
+    if (range < 1e-6 || slope_abs * seconds < range * 0.05) direction = "stable";
+    else if (slope > 0) direction = "rising";
+    else                direction = "falling";
 
     json result = {
         {"sensor",     sensor},
@@ -235,7 +257,7 @@ json ToolDispatcher::tool_set_sample_rate(const json& args) {
     if (hz > 200) hz = 200;
 
     if (!sensors_.set_sample_rate(sensor, hz)) {
-        return {{"error","Sensor yok veya hata: " + sensor}};
+        return {{"error","Sensor not found or error: " + sensor}};
     }
 
     auto cfg = load_config();
@@ -243,7 +265,7 @@ json ToolDispatcher::tool_set_sample_rate(const json& args) {
         cfg["sensors"][sensor]["sample_rate_hz"] = hz;
         if (!save_config(cfg)) {
             return {{"ok",true},{"sensor",sensor},{"hz_applied",hz},
-                    {"warning","Bellekte degisti ama config'e yazilamadi"}};
+                    {"warning","Changed in memory but could not save to config"}};
         }
     }
 
@@ -257,12 +279,12 @@ json ToolDispatcher::tool_set_sample_rate(const json& args) {
 // ============================================================
 json ToolDispatcher::tool_set_threshold(const json& args) {
     std::string metric = args.value("metric", "");
-    if (metric.empty()) return {{"error","metric parametresi eksik"}};
+    if (metric.empty()) return {{"error","metric parameter missing"}};
 
     auto cfg = load_config();
     if (!cfg.contains("thresholds") || !cfg["thresholds"].contains(metric)) {
-        return {{"error","Bilinmeyen metrik: " + metric +
-                 ". Gecerli metrikler: bme280.temperature_c, bme280.humidity_pct, "
+        return {{"error","Unknown metric: " + metric +
+                 ". Valid metrics: bme280.temperature_c, bme280.humidity_pct, "
                  "bme280.pressure_hpa, mpu6050.accel_g.x/y/z, mpu6050.gyro_dps.x/y/z, "
                  "mpu6050.temp_c, qmc5883l.heading_deg"}};
     }
@@ -281,11 +303,11 @@ json ToolDispatcher::tool_set_threshold(const json& args) {
         changed["max"] = {{"old", old_max}, {"new", thr["max"]}};
     }
 
-    if (changed.empty()) return {{"error","min veya max degeri verilmedi"}};
+    if (changed.empty()) return {{"error","No min or max value provided"}};
 
     if (!save_config(cfg)) {
         return {{"ok",true},{"metric",metric},{"changed",changed},
-                {"warning","Bellekte degisti ama config'e yazilamadi"},{"persisted",false}};
+                {"warning","Changed in memory but could not save to config"},{"persisted",false}};
     }
 
     // Analyzer'ı da güncelle (hot-reload: config yeniden okunacak)
@@ -299,12 +321,12 @@ json ToolDispatcher::tool_set_threshold(const json& args) {
 // ============================================================
 json ToolDispatcher::tool_set_sensor_enabled(const json& args) {
     std::string sensor = args.value("sensor", "");
-    if (sensor.empty()) return {{"error","sensor parametresi eksik"}};
+    if (sensor.empty()) return {{"error","sensor parameter missing"}};
     bool enabled = args.value("enabled", true);
 
     auto cfg = load_config();
     if (!cfg.contains("sensors") || !cfg["sensors"].contains(sensor)) {
-        return {{"error","Bilinmeyen sensor: " + sensor}};
+        return {{"error","Unknown sensor: " + sensor}};
     }
 
     bool was_enabled = cfg["sensors"][sensor].value("enabled", true);
@@ -312,7 +334,7 @@ json ToolDispatcher::tool_set_sensor_enabled(const json& args) {
 
     if (!save_config(cfg)) {
         return {{"ok",true},{"sensor",sensor},{"enabled",enabled},
-                {"warning","Bellekte degisti ama config'e yazilamadi"},{"persisted",false}};
+                {"warning","Changed in memory but could not save to config"},{"persisted",false}};
     }
 
     return {{"ok",true},{"sensor",sensor},{"enabled",enabled},
@@ -348,7 +370,7 @@ json ToolDispatcher::tool_get_config(const json& /*args*/) {
 
 // ============================================================
 // FORMAT_FOR_LLM
-// LLM'e ham JSON degil, yuvarlanmis Turkce metin gonderir.
+// Sends rounded English text to the LLM, not raw JSON.
 // ============================================================
 static std::string round_str(double v, int digits = 2) {
     std::ostringstream os;
@@ -356,28 +378,28 @@ static std::string round_str(double v, int digits = 2) {
     return os.str();
 }
 
-// metric_c TR adi
+// Human-readable metric label (English)
 static std::string metric_label(const std::string& sensor,
                                  const std::string& metric) {
     if (sensor == "bme280") {
-        if (metric == "temperature_c") return "sicaklik";
-        if (metric == "humidity_pct")  return "nem";
-        if (metric == "pressure_hpa")  return "basinc";
+        if (metric == "temperature_c") return "temperature";
+        if (metric == "humidity_pct")  return "humidity";
+        if (metric == "pressure_hpa")  return "pressure";
     }
     if (sensor == "mpu6050") {
-        if (metric == "accel_g.x") return "X ivmesi";
-        if (metric == "accel_g.y") return "Y ivmesi";
-        if (metric == "accel_g.z") return "Z ivmesi";
+        if (metric == "accel_g.x") return "X acceleration";
+        if (metric == "accel_g.y") return "Y acceleration";
+        if (metric == "accel_g.z") return "Z acceleration";
         if (metric == "gyro_dps.x") return "X gyro";
         if (metric == "gyro_dps.y") return "Y gyro";
         if (metric == "gyro_dps.z") return "Z gyro";
-        if (metric == "temp_c")    return "MPU sicakligi";
+        if (metric == "temp_c")    return "MPU temperature";
     }
     if (sensor == "qmc5883l") {
-        if (metric == "heading_deg") return "yon (heading)";
-        if (metric == "mag_g.x")     return "X manyetik";
-        if (metric == "mag_g.y")     return "Y manyetik";
-        if (metric == "mag_g.z")     return "Z manyetik";
+        if (metric == "heading_deg") return "heading";
+        if (metric == "mag_g.x")     return "X magnetic";
+        if (metric == "mag_g.y")     return "Y magnetic";
+        if (metric == "mag_g.z")     return "Z magnetic";
     }
     return metric;
 }
@@ -396,8 +418,7 @@ static std::string unit_for(const std::string& metric) {
 static std::string heading_to_compass(double deg) {
     deg = std::fmod(deg + 360.0, 360.0);
     static const char* dirs[] = {
-        "Kuzey","Kuzey-Dogu","Dogu","Guney-Dogu",
-        "Guney","Guney-Bati","Bati","Kuzey-Bati"
+        "N", "NE", "E", "SE", "S", "SW", "W", "NW"
     };
     int idx = (int)std::round(deg / 45.0) % 8;
     return dirs[idx];
@@ -406,7 +427,7 @@ static std::string heading_to_compass(double deg) {
 std::string ToolDispatcher::format_for_llm(const std::string& tool_name,
                                             const json& tr) const {
     if (tr.contains("error")) {
-        return "HATA: " + tr["error"].get<std::string>();
+        return "ERROR: " + tr["error"].get<std::string>();
     }
 
     std::ostringstream os;
@@ -415,7 +436,7 @@ std::string ToolDispatcher::format_for_llm(const std::string& tool_name,
         if (tr.value("ok", false)) {
             std::string metric = tr.value("metric","?");
             std::string label  = tr.value("label", metric);
-            os << "Esik guncellendi: " << label << " (" << metric << ")";
+            os << "Threshold updated: " << label << " (" << metric << ")";
             if (tr.contains("changed")) {
                 const auto& ch = tr["changed"];
                 if (ch.contains("min"))
@@ -425,9 +446,9 @@ std::string ToolDispatcher::format_for_llm(const std::string& tool_name,
                     os << " | max: " << ch["max"]["old"].dump()
                        << " -> " << ch["max"]["new"].dump();
             }
-            if (tr.value("persisted",false)) os << " | Config'e kaydedildi.";
+            if (tr.value("persisted",false)) os << " | Saved to config.";
         } else {
-            os << "Tool basarisiz oldu.";
+            os << "Tool failed.";
         }
         return os.str();
     }
@@ -436,29 +457,28 @@ std::string ToolDispatcher::format_for_llm(const std::string& tool_name,
         if (tr.value("ok", false)) {
             std::string s = tr.value("sensor","?");
             bool en = tr.value("enabled", true);
-            os << s << " sensoru " << (en ? "ACILDI" : "KAPATILDI") << ".";
-            if (tr.value("persisted",false)) os << " Config'e kaydedildi.";
+            os << s << " sensor " << (en ? "ENABLED" : "DISABLED") << ".";
+            if (tr.value("persisted",false)) os << " Saved to config.";
         } else {
-            os << "Tool basarisiz oldu.";
+            os << "Tool failed.";
         }
         return os.str();
     }
 
     if (tool_name == "get_config") {
-        os << "Mevcut sistem ayarlari:\n\n";
-        os << "[Sensor Ornekleme Hizlari]\n";
+        os << "Current system settings:\n\n";
+        os << "[Sensor Sample Rates]\n";
         if (tr.contains("sensors")) {
             for (auto& [s, info] : tr["sensors"].items()) {
                 bool en = info.value("enabled", true);
                 os << "- " << s << ": " << info.value("sample_rate_hz",0) << " Hz"
-                   << (en ? "" : " (KAPALI)") << "\n";
+                   << (en ? "" : " (DISABLED)") << "\n";
             }
         }
-        os << "\n[Anomali Esik Degerleri]\n";
+        os << "\n[Anomaly Thresholds]\n";
         if (tr.contains("thresholds")) {
             for (auto& [key, thr] : tr["thresholds"].items()) {
                 std::string lbl = thr.value("label", key);
-                // metric key'den birim bul
                 std::string u = unit_for(key.substr(key.find('.')+1));
                 double mn = thr.value("min", 0.0), mx = thr.value("max", 0.0);
                 os << "- " << lbl << " (" << key << "): "
@@ -466,19 +486,18 @@ std::string ToolDispatcher::format_for_llm(const std::string& tool_name,
                    << ", max=" << round_str(mx,1) << u << "\n";
             }
         }
-        os << "\n[Mod] " << tr.value("mode","?") << "\n";
+        os << "\n[Mode] " << tr.value("mode","?") << "\n";
         return os.str();
     }
 
     if (tool_name == "set_sample_rate") {
         if (tr.value("ok", false)) {
-            os << "Tool sonucu: " << tr.value("sensor","?")
-               << " sensoru " << tr.value("hz_applied",0)
-               << " Hz olarak ayarlandi.";
+            os << "Result: " << tr.value("sensor","?")
+               << " set to " << tr.value("hz_applied",0) << " Hz.";
             if (tr.value("persisted", false))
-                os << " Config'e kaydedildi.";
+                os << " Saved to config.";
         } else {
-            os << "Tool basarisiz oldu.";
+            os << "Tool failed.";
         }
         return os.str();
     }
@@ -516,13 +535,13 @@ std::string ToolDispatcher::format_for_llm(const std::string& tool_name,
         };
 
         if (tr.contains("data") && tr["data"].is_object()) {
-            // Tek sensor (data + analysis kardes)
-            os << "Sensor verisi:\n";
+            // Single sensor (data + sibling analysis)
+            os << "Sensor data:\n";
             const json* a = tr.contains("analysis") ? &tr["analysis"] : nullptr;
             write_metrics("", tr["data"], a, "");
         } else {
-            // "all" - hepsi
-            os << "Tum sensor verileri:\n";
+            // "all" sensors
+            os << "All sensor data:\n";
             for (auto& [sname, info] : tr.items()) {
                 if (!info.contains("data") || info["data"].is_null()) continue;
                 os << sname << ":\n";
@@ -540,34 +559,34 @@ std::string ToolDispatcher::format_for_llm(const std::string& tool_name,
         int sec = tr.value("seconds", 0);
         int n = tr.value("samples", 0);
 
-        os << "Son " << sec << " saniye - " << metric_label(s, m) << ":\n";
-        os << "- Ortalama: " << round_str(tr.value("avg",0.0), 2) << " " << u << "\n";
+        os << "Last " << sec << " seconds - " << metric_label(s, m) << ":\n";
+        os << "- Average: " << round_str(tr.value("avg",0.0), 2) << " " << u << "\n";
         os << "- Min: " << round_str(tr.value("min",0.0), 2) << " " << u << "\n";
         os << "- Max: " << round_str(tr.value("max",0.0), 2) << " " << u << "\n";
-        os << "- Son okuma: " << round_str(tr.value("last",0.0), 2) << " " << u << "\n";
-        os << "- Olcum sayisi: " << n << "\n";
+        os << "- Last reading: " << round_str(tr.value("last",0.0), 2) << " " << u << "\n";
+        os << "- Samples: " << n << "\n";
 
         if (tr.contains("trend")) {
             auto& tnd = tr["trend"];
             os << "- Trend: " << tnd.value("direction","?")
-               << " (toplam degisim "
+               << " (total change "
                << round_str(tnd.value("change",0.0), 2) << " " << u;
             double pct = tnd.value("change_pct", 0.0);
             if (std::fabs(pct) > 0.1)
-                os << ", %" << round_str(pct, 1);
+                os << ", " << round_str(pct, 1) << "%";
             os << ")\n";
         }
 
         if (tr.contains("analysis")) {
             auto& a = tr["analysis"];
             bool anom = a.value("anomaly", false);
-            os << "\nDurum: ";
+            os << "\nStatus: ";
             if (anom) {
-                os << "ANOMALI VAR (siddet: " << a.value("severity","?") << ", "
+                os << "ANOMALY DETECTED (severity: " << a.value("severity","?") << ", "
                    << a.value("reason","") << ")";
             } else {
-                os << "ANOMALI YOK (degerler " << a.value("label","")
-                   << " araliginda normal)";
+                os << "NORMAL (values within " << a.value("label","")
+                   << " range)";
             }
             os << "\n";
         }

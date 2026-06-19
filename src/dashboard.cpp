@@ -73,88 +73,69 @@ static std::string g_last_sensor;
 // ============================================================
 // SYSTEM PROMPTLAR
 // ============================================================
-// KRITIK: Bu promptlar fine-tune dataset'indeki promptlarla
-// BIREBIR AYNI olmali. Model bu metinlerle egitildi; tek kelime
-// farki bile davranisi bozar. Degistirmeden once dataset'i kontrol et.
+// System prompts — full English pipeline (stock Qwen3-1.7B, no fine-tune).
 // ============================================================
 
-// --- Tool sonucu varsa: sensor verisi formatlama modu ---
-// Dataset: 3128 ornek bu prompt'la egitildi
+// --- Tool result mode: sensor data verbalization ---
 static const char* SYSPROMPT_SENSOR =
-    "Sen sensor asistanisin. Sana sensor verisi gelir, "
-    "Turkce 1-2 cumle cevap ver. "
-    "Sayilari oldugu gibi kullan, uydurma. "
-    "Metrik tanimlama yapma (nem nedir, ivme nedir diye aciklama), "
-    "sadece degeri ve durumu bildir. "
-    "Sensorler: BME280 (sicaklik/nem/basinc), "
-    "MPU6500 (ivme/gyro), QMC5883L (manyetik/heading).";
+    "You are a sensor assistant. You receive live sensor readings. "
+    "Reply in 1-2 concise English sentences. "
+    "Use the numbers exactly as provided — never fabricate or round differently. "
+    "Do not define metrics (no 'humidity means...'); just report the value and status. "
+    "Sensors available: BME280 (temperature/humidity/pressure), "
+    "MPU6500 (accelerometer/gyroscope), QMC5883L (magnetometer/heading).";
 
-// --- Serbest sohbet modu (tool eslesmedi, teknik degil) ---
-// Dataset: 493 ornek bu prompt'la egitildi
+// --- Free-chat mode (no tool match, not a technical question) ---
 static const char* SYSPROMPT_CHAT =
-    "Sen Muhtas sensor sisteminin asistanisin. "
-    "Kullanici sohbet etmek istediginde samimi ve kisa cevap ver. "
-    "Sensor verisi yoksa genel bilginle yardimci ol.";
+    "You are the assistant for the Muhtas sensor monitoring system. "
+    "Answer conversationally and briefly. "
+    "If there is no sensor data available, help with general knowledge.";
 
-// --- Teknik soru modu (sensorler/elektronik/gomulu sistem bilgisi) ---
-// Dataset: 407 ornek bu prompt'la egitildi
+// --- Technical question mode (sensors / electronics / embedded systems) ---
 static const char* SYSPROMPT_TECH =
-    "Sen Muhtas sensor sisteminin teknik asistanisin. "
-    "Sensorler, elektronik ve gomulu sistemler hakkinda Turkce teknik bilgi ver. "
-    "Kisa ve anlasilir cevapla.";
+    "You are the technical assistant for the Muhtas sensor system. "
+    "Provide concise, accurate technical information about sensors, "
+    "electronics, and embedded systems in English.";
 
 // ============================================================
-// TEKNIK SORU TESPITI
-// Sensor intent eslesmedi; soru teknik bilgi mi yoksa sohbet mi?
-// Teknik ise SYSPROMPT_TECH, degilse SYSPROMPT_CHAT kullan.
+// TECHNICAL QUESTION DETECTION
+// If no sensor intent matched: is this a technical knowledge question
+// or free chat? Use SYSPROMPT_TECH vs SYSPROMPT_CHAT accordingly.
 // ============================================================
 static bool is_technical_question(const std::string& msg) {
-    // Turkce karakterleri kabaca sadelestir (lowercase + ascii yaklasimi)
     std::string norm;
     norm.reserve(msg.size());
     for (size_t i = 0; i < msg.size();) {
         unsigned char c = (unsigned char)msg[i];
         if (c < 0x80) { norm += (char)std::tolower(c); i++; }
-        else if (c < 0xE0 && i + 1 < msg.size()) {
-            // 2-byte UTF-8: yaygin TR karakterleri
-            std::string ch = msg.substr(i, 2);
-            if      (ch == "\xC4\xB1" || ch == "\xC4\xB0") norm += 'i';
-            else if (ch == "\xC3\xA7" || ch == "\xC3\x87") norm += 'c';
-            else if (ch == "\xC4\x9F" || ch == "\xC4\x9E") norm += 'g';
-            else if (ch == "\xC3\xB6" || ch == "\xC3\x96") norm += 'o';
-            else if (ch == "\xC5\x9F" || ch == "\xC5\x9E") norm += 's';
-            else if (ch == "\xC3\xBC" || ch == "\xC3\x9C") norm += 'u';
-            else norm += ' ';
-            i += 2;
-        } else { i += (c < 0xF0) ? 3 : 4; }
+        else if (c < 0xE0 && i + 1 < msg.size()) { norm += ' '; i += 2; }
+        else { i += (c < 0xF0) ? 3 : 4; }
     }
 
-    // Once VERI SORGUSU kaliplarini dpe: "ne durumda", "kac", "nasil"
-    // (bunlar canli veri ister, teknik bilgi degil). Bu kaliplar varsa
-    // teknik soru DEGIL -> IntentRouter veri ceksin.
+    // Live-data queries: "what is it now", "current reading" etc.
+    // These want sensor data, not background knowledge → not technical.
     static const std::regex data_query_re(
-        R"(ne durumda|kac derece|kac |durumu ne|nasil gidiyor|)"
-        R"(simdi|su an|anlik|guncel|olcum|deger ne|son )",
+        R"(right now|current(ly)?|live|real.?time|latest|reading|measure|value now|how (much|many) (is|are))",
         std::regex_constants::icase);
     if (std::regex_search(norm, data_query_re)) return false;
 
-    // Bilgi/aciklama isteyen kaliplar: "nedir", "ne ise yarar", "nasil calisir"
+    // Info / explanation request patterns
     static const std::regex info_re(
-        R"(nedir|ne ise yarar|ne olcer|nasil calis|acikla|anlat|)"
-        R"(ne demek|farki ne|nasil kalibre|neden kullan)",
+        R"(what is|what does|how does|how do|explain|tell me about|)"
+        R"(difference between|how to calibrate|why (use|is)|what.*measure|)"
+        R"(how.*work|what.*mean|describe)",
         std::regex_constants::icase);
     bool wants_info = std::regex_search(norm, info_re);
 
-    // Teknik konu anahtar kelimeleri
+    // Technical topic keywords
     static const std::regex tech_topic_re(
         R"(bme280|mpu6500|mpu6050|qmc5883|i2c|spi|uart|gpio|)"
-        R"(ivmeolcer|jiroskop|gyroskop|manyetometre|barometre|protokol|)"
-        R"(heading|pascal|hpa|gauss|ornekleme frekans|register|veri yolu|)"
-        R"(cozunurluk|sensor nas|sensor ne)",
+        R"(acceleromet|gyroscop|magnetomet|barometer|protocol|)"
+        R"(heading|pascal|hpa|gauss|sample.?rate|register|data.?bus|)"
+        R"(resolution|sensor)",
         std::regex_constants::icase);
     bool tech_topic = std::regex_search(norm, tech_topic_re);
 
-    // Teknik soru = bilgi istegi VE teknik konu birlikte olmali
     return wants_info && tech_topic;
 }
 
@@ -183,51 +164,50 @@ static std::string tr_normalize(const std::string& msg) {
 }
 
 // ============================================================
-// NEGATIF / SINIR TESPITI
-// IntentRouter'dan ONCE calisir. Olmayan sensor, saglik tavsiyesi
-// veya alakasiz soru ise sensor verisi cekmeyi engelle, modele dogru
-// reddi ogretilmis prompt ile gonder.
-// Donen deger: 0=negatif degil, 1=olmayan sensor, 2=saglik, 3=alakasiz
+// NEGATIVE / BOUNDARY DETECTION
+// Runs BEFORE IntentRouter. Blocks sensor data fetching for
+// non-existent sensors, health advice, and off-topic requests.
+// Returns: 0=none, 1=missing sensor, 2=health, 3=irrelevant
 // ============================================================
 static int detect_negative(const std::string& msg) {
     std::string norm = tr_normalize(msg);
 
-    // --- TIP 1: OLMAYAN SENSOR/METRIK ---
-    // Sistemde olmayan olcumler. "hava kalitesi" -> "hava" sensor zannedilmesin.
+    // --- TYPE 1: NON-EXISTENT SENSOR/METRIC ---
+    // Prevent "air" from matching BME280.
     static const std::regex missing_sensor_re(
-        R"(hava kalite|co2|karbondioksit|gaz |gaz olc|isik |aydinlik|lux|)"
-        R"(ses |gurultu|desibel|mesafe|uzaklik|gps|konum|koordinat|)"
-        R"(kalp |nabiz|nabiz|kamera|goruntu|radyasyon|uv |ph |toz |partikul)",
+        R"(air quality|co2|carbon dioxide|gas sensor|light sensor|lux|brightness|)"
+        R"(noise|decibel|sound level|distance|ultrasonic|gps|location|coordinate|)"
+        R"(heart rate|pulse|camera|image|radiation|uv sensor|ph |dust|particle|pm2)",
         std::regex_constants::icase);
     if (std::regex_search(norm, missing_sensor_re)) return 1;
 
-    // --- TIP 2: SAGLIK / GUVENLIK TAVSIYESI ---
+    // --- TYPE 2: HEALTH / SAFETY ADVICE ---
     static const std::regex health_re(
-        R"(hasta ol|hasta mi|saglik|hastalan|ustum|tehlikeli mi.*saglik|)"
-        R"(ilac al|doktora|hastane|olur muyum|zararli mi|zarar verir mi|)"
-        R"(guvende miyim|risk var mi.*saglik)",
+        R"(am i (sick|safe|healthy)|health (risk|advice|warning)|dangerous.*health|)"
+        R"(take medication|see a doctor|go to hospital|will i (die|get sick)|)"
+        R"(harmful to (me|health)|safe (to breathe|to stay))",
         std::regex_constants::icase);
     if (std::regex_search(norm, health_re)) return 2;
 
-    // --- TIP 3: ALAKASIZ (gelecek tahmini, genel kultur disi) ---
+    // --- TYPE 3: IRRELEVANT (lottery, sports scores, stocks, horoscopes) ---
     static const std::regex irrelevant_re(
-        R"(piyango|loto|sayisal|kim kazan|mac skor|borsa|dolar kac|)"
-        R"(yarin ne olacak|gelecek|fal |burc |ruya)",
+        R"(lottery|lotto|jackpot|match score|stock price|bitcoin|crypto price|)"
+        R"(tomorrow.*weather forecast|predict.*future|horoscope|zodiac|dream mean)",
         std::regex_constants::icase);
     if (std::regex_search(norm, irrelevant_re)) return 3;
 
     return 0;
 }
 
-// Negatif moda gore system prompt sec
+// Select system prompt for negative type
 static const char* negative_sysprompt(int neg_type) {
     if (neg_type == 2) {
-        // Saglik: tavsiye verme prompt'u
-        return "Sen sensor asistanisin. Sana sensor verisi gelir, "
-               "Turkce 1-2 cumle cevap ver. Saglik veya guvenlik tavsiyesi verme, "
-               "sadece sensor verisini bildir.";
+        // Health: do not give advice prompt
+        return "You are a sensor assistant. You receive sensor readings. "
+               "Reply in 1-2 English sentences. "
+               "Do not give health or safety advice — only report sensor data.";
     }
-    // Olmayan sensor ve alakasiz icin sohbet/red prompt'u
+    // Missing sensor and off-topic: use chat/refusal prompt
     return SYSPROMPT_CHAT;
 }
 
@@ -480,57 +460,57 @@ int main() {
                 const char* sysprompt;
                 bool is_sensor_mode = false;
                 if (intent.is_tool) {
-                    // Tool sonucu var: sensor verisi formatla
+                    // Tool result available: sensor data verbalization mode
                     sysprompt    = SYSPROMPT_SENSOR;
                     is_sensor_mode = true;
                     user_for_llm =
-                        "Soru: " + user_msg + "\n"
-                        "Veri:\n" + tool_text_for_llm + "\n"
-                        "Cevap:";
+                        "Question: " + user_msg + "\n"
+                        "Data:\n" + tool_text_for_llm + "\n"
+                        "Answer:";
                 } else if (neg_type != 0) {
-                    // Negatif/sinir: olmayan sensor, saglik, alakasiz
+                    // Negative/boundary: missing sensor, health, off-topic
                     sysprompt = negative_sysprompt(neg_type);
                     if (neg_type == 1) {
-                        // Olmayan sensor: modele neyin OLMADIGINI ve neyin
-                        // oldugunu acikca soyle ki dogru reddetsin.
+                        // Missing sensor: tell model what is NOT available
+                        // and what IS, so it refuses correctly.
                         user_for_llm =
-                            "Soru: " + user_msg + "\n"
-                            "Veri:\nBu olcum icin sensor yok. "
-                            "Mevcut sensorler: BME280 (sicaklik/nem/basinc), "
-                            "MPU6500 (ivme/gyro), QMC5883L (manyetik/heading).\n"
-                            "Cevap:";
+                            "Question: " + user_msg + "\n"
+                            "Data:\nNo sensor available for this measurement. "
+                            "Available sensors: BME280 (temperature/humidity/pressure), "
+                            "MPU6500 (accelerometer/gyroscope), QMC5883L (magnetometer/heading).\n"
+                            "Answer:";
                     } else {
-                        user_for_llm = "Soru: " + user_msg + "\nCevap:";
+                        user_for_llm = "Question: " + user_msg + "\nAnswer:";
                     }
                 } else if (force_tech) {
-                    // Teknik soru: teknik prompt
+                    // Technical question mode
                     sysprompt    = SYSPROMPT_TECH;
-                    user_for_llm = "Soru: " + user_msg + "\nCevap:";
+                    user_for_llm = "Question: " + user_msg + "\nAnswer:";
                 } else {
-                    // "Hangi sensorler var?" tip sorgu → doğru liste enjekte et
+                    // "Which sensors are available?" → inject accurate list
                     std::string norm_msg = tr_normalize(user_msg);
                     static const std::regex sensor_list_re(
-                        R"(hangi sensor|sensor.*var|sensor.*neler|ne.*sensor|sistemde.*ne|kac sensor)",
+                        R"(which sensor|what sensor|sensor.*available|how many sensor|list.*sensor)",
                         std::regex_constants::icase);
                     if (std::regex_search(norm_msg, sensor_list_re)) {
                         sysprompt    = SYSPROMPT_SENSOR;
                         user_for_llm =
-                            "Soru: " + user_msg + "\n"
-                            "Bilgi: Sistemde 3 sensor var: "
-                            "BME280 (sicaklik, nem, basinc), "
-                            "MPU6500 (ivme, jiroskop), "
-                            "QMC5883L (manyetik-alan, heading, pusula). "
-                            "Baska sensor yok.\n"
-                            "Cevap:";
+                            "Question: " + user_msg + "\n"
+                            "Data: This system has 3 sensors: "
+                            "BME280 (temperature, humidity, pressure), "
+                            "MPU6500 (accelerometer, gyroscope), "
+                            "QMC5883L (magnetometer, heading/compass). "
+                            "No other sensors are present.\n"
+                            "Answer:";
                     } else {
-                        // Serbest sohbet
+                        // Free chat
                         sysprompt    = SYSPROMPT_CHAT;
-                        user_for_llm = "Soru: " + user_msg + "\nCevap:";
+                        user_for_llm = "Question: " + user_msg + "\nAnswer:";
                     }
                 }
 
-                // Sampling: sensor modunda determinist (sayilar dogru olsun),
-                // sohbet/teknik modda biraz daha gevsek (dogal Turkce cumle).
+                // Sampling: deterministic in sensor mode (numbers must be accurate),
+                // slightly looser for chat/tech (natural English sentences).
                 double  temp      = is_sensor_mode ? 0.2  : 0.5;
                 double  rep_pen   = is_sensor_mode ? 1.15 : 1.05;
                 double  top_p_v   = is_sensor_mode ? 0.9  : 0.92;
@@ -550,7 +530,7 @@ int main() {
                     {"top_p",          top_p_v},
                     {"top_k",          40},
                     {"chat_template_kwargs", {{"enable_thinking", false}}},
-                    {"stop", {"<|im_end|>", "\nSoru:", "Soru:", "\nUser:", "\nKullanici:"}}
+                    {"stop", {"<|im_end|>", "\nQuestion:", "Question:", "\nUser:", "\nHuman:"}}
                 };
 
                 httplib::Client cli(LLAMA_HOST, LLAMA_PORT);

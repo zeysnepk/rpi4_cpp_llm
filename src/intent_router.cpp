@@ -45,37 +45,34 @@ static std::string normalize(const std::string& s) {
 // Sensor adi tespiti
 // ============================================================
 static std::string detect_sensor(const std::string& norm) {
-    if (norm.find("bme")     != std::string::npos ||
-        norm.find("sicak")   != std::string::npos ||
-        norm.find("temp")    != std::string::npos ||
-        norm.find("nem")     != std::string::npos ||
-        norm.find("humid")   != std::string::npos ||
-        norm.find("basinc")  != std::string::npos ||
-        norm.find("press")   != std::string::npos ||
-        norm.find("hava")    != std::string::npos ||
-        norm.find("oda")     != std::string::npos ||
-        norm.find("ortam")   != std::string::npos ||
-        norm.find("cevre")   != std::string::npos) {
+    if (norm.find("bme")      != std::string::npos ||
+        norm.find("temp")     != std::string::npos ||
+        norm.find("humid")    != std::string::npos ||
+        norm.find("press")    != std::string::npos ||
+        norm.find("room")     != std::string::npos ||
+        norm.find("ambient")  != std::string::npos ||
+        norm.find("weather")  != std::string::npos ||
+        norm.find("atmosph")  != std::string::npos ||
+        norm.find("baromet")  != std::string::npos) {
         return "bme280";
     }
-    if (norm.find("mpu")     != std::string::npos ||
-        norm.find("ivme")    != std::string::npos ||
-        norm.find("accel")   != std::string::npos ||
-        norm.find("gyro")    != std::string::npos ||
-        norm.find("jiros")   != std::string::npos ||
-        norm.find("acisal")  != std::string::npos ||
-        norm.find("titres")  != std::string::npos ||
-        norm.find("vibrat")  != std::string::npos) {
+    if (norm.find("mpu")      != std::string::npos ||
+        norm.find("accel")    != std::string::npos ||
+        norm.find("gyro")     != std::string::npos ||
+        norm.find("vibrat")   != std::string::npos ||
+        norm.find("motion")   != std::string::npos ||
+        norm.find("tilt")     != std::string::npos ||
+        norm.find("angular")  != std::string::npos ||
+        norm.find("rotation") != std::string::npos) {
         return "mpu6050";
     }
-    if (norm.find("qmc")        != std::string::npos ||
-        norm.find("manyetik")   != std::string::npos ||
-        norm.find("magnetic")   != std::string::npos ||
-        norm.find("heading")    != std::string::npos ||
-        norm.find("pusula")     != std::string::npos ||
-        norm.find(" yon")       != std::string::npos ||
-        norm.find("yonel")      != std::string::npos ||
-        norm.find("compass")    != std::string::npos) {
+    if (norm.find("qmc")       != std::string::npos ||
+        norm.find("magnetic")  != std::string::npos ||
+        norm.find("magnet")    != std::string::npos ||
+        norm.find("heading")   != std::string::npos ||
+        norm.find("compass")   != std::string::npos ||
+        norm.find("direction") != std::string::npos ||
+        norm.find("bearing")   != std::string::npos) {
         return "qmc5883l";
     }
     return "";
@@ -91,16 +88,17 @@ static std::string detect_metric(const std::string& norm, const std::string& sen
     };
 
     if (sensor == "bme280") {
-        if (norm.find("nem")    != std::string::npos ||
-            norm.find("humid")  != std::string::npos) return "humidity_pct";
-        if (norm.find("basinc") != std::string::npos ||
-            norm.find("press")  != std::string::npos) return "pressure_hpa";
+        if (norm.find("humid")   != std::string::npos ||
+            norm.find("moisture") != std::string::npos) return "humidity_pct";
+        if (norm.find("press")   != std::string::npos ||
+            norm.find("baromet") != std::string::npos ||
+            norm.find("hpa")     != std::string::npos) return "pressure_hpa";
         return "temperature_c";
     }
     if (sensor == "mpu6050") {
-        bool is_gyro = (norm.find("gyro")   != std::string::npos ||
-                        norm.find("jiros")  != std::string::npos ||
-                        norm.find("acisal") != std::string::npos);
+        bool is_gyro = (norm.find("gyro")    != std::string::npos ||
+                        norm.find("angular") != std::string::npos ||
+                        norm.find("rotation") != std::string::npos);
         if (is_gyro) {
             if (has_axis('x')) return "gyro_dps.x";
             if (has_axis('y')) return "gyro_dps.y";
@@ -111,9 +109,10 @@ static std::string detect_metric(const std::string& norm, const std::string& sen
         return "accel_g.z";
     }
     if (sensor == "qmc5883l") {
-        if (norm.find("heading") != std::string::npos ||
-            norm.find("yon")     != std::string::npos ||
-            norm.find("pusula")  != std::string::npos) return "heading_deg";
+        if (norm.find("heading")   != std::string::npos ||
+            norm.find("direction") != std::string::npos ||
+            norm.find("compass")   != std::string::npos ||
+            norm.find("bearing")   != std::string::npos) return "heading_deg";
         if (has_axis('x')) return "mag_g.x";
         if (has_axis('y')) return "mag_g.y";
         if (has_axis('z')) return "mag_g.z";
@@ -122,10 +121,10 @@ static std::string detect_metric(const std::string& norm, const std::string& sen
     return "";
 }
 
-// Yorum/anomali/degerlendirme talep keyword'leri
+// Interpretation/anomaly/evaluation request keywords
 static bool has_interpret_keyword(const std::string& norm) {
     static const std::regex re(
-        R"(anomali|yorum|degerlendir|analiz|trend|iyi\s+mi|kotu\s+mu|sorun|problem|durum|normal\s+mi|hata)",
+        R"(anomal|interpret|evaluat|analyz|analyse|trend|good\s+or|bad\?|issue|problem|status|normal\?|fault|check\s+if|how\s+is|is\s+it\s+ok)",
         std::regex_constants::icase);
     return std::regex_search(norm, re);
 }
@@ -137,35 +136,35 @@ IntentRouter::Intent IntentRouter::parse(const std::string& msg_tr,
                                           const std::string& last_sensor_hint) {
     std::string norm = normalize(msg_tr);
 
-    // ----- 0a. GET CONFIG ("hangi değerleri değiştirebilirim", "tüm ayarlar") -----
+    // ----- 0a. GET CONFIG ("what can I change", "show settings", "list thresholds") -----
     {
         static const std::regex re(
-            "hangi.*degis|ne.*degistirebil|ayarlar.*goster|tum.*ayar|"
-            "konfigurasyon|config.*goster|parametreler|esik.*listesi|"
-            "limit.*listesi|ne.*ayarlayabilirim|ne.*yapilandir",
+            "show.*setting|list.*setting|show.*config|get.*config|"
+            "what.*can.*change|what.*adjust|what.*configur|"
+            "list.*threshold|show.*threshold|list.*limit|show.*limit|"
+            "show.*parameter|all.*setting|current.*config|print.*config",
             std::regex_constants::icase);
         if (std::regex_search(norm, re)) {
             return {true, "get_config", json::object(), msg_tr};
         }
     }
 
-    // ----- 0b. SET THRESHOLD ("sıcaklık max 35 yap", "nem üst sınırını 70 yap") -----
+    // ----- 0b. SET THRESHOLD ("set temperature max to 35", "humidity upper limit 70") -----
     {
-        // Önce min/max yön tespiti
+        // Min/max direction detection
+        bool has_lower = norm.find("lower")   != std::string::npos ||
+                         norm.find("floor")   != std::string::npos ||
+                         norm.find("bottom")  != std::string::npos;
         bool want_max = norm.find("max")    != std::string::npos ||
-                        norm.find("ust")    != std::string::npos ||
-                        norm.find("tavan")  != std::string::npos ||
-                        norm.find("en faz") != std::string::npos ||
-                        norm.find("sinir")  != std::string::npos;
+                        norm.find("upper")  != std::string::npos ||
+                        norm.find("ceiling")!= std::string::npos ||
+                        norm.find("high")   != std::string::npos;
         bool want_min = norm.find("min")    != std::string::npos ||
-                        norm.find("alt")    != std::string::npos ||
-                        norm.find("zemin")  != std::string::npos ||
-                        norm.find("en az")  != std::string::npos ||
-                        norm.find("asagi")  != std::string::npos;
+                        has_lower;
 
-        // Eşik değiştirme fiili
+        // Threshold change verb
         static const std::regex thr_verb_re(
-            R"(esik|limit|sinir|tavan|zemin|threshold|esigi|limiti|siniri)",
+            R"(limit|threshold|boundary|ceiling|floor|upper|lower|set.*to|change.*to)",
             std::regex_constants::icase);
         bool is_threshold = std::regex_search(norm, thr_verb_re) || (want_max || want_min);
 
@@ -176,27 +175,25 @@ IntentRouter::Intent IntentRouter::parse(const std::string& msg_tr,
         if (is_threshold && std::regex_search(norm, val_m, val_re)) {
             double val = std::stod(val_m[1].str());
 
-            // Metric tespiti (esik için daha geniş eşleşme)
+            // Metric detection for thresholds (broader matching)
             std::string metric_key;
-            if (norm.find("sicak") != std::string::npos || norm.find("temp") != std::string::npos)
+            if (norm.find("temp") != std::string::npos)
                 metric_key = "bme280.temperature_c";
-            else if (norm.find("nem") != std::string::npos || norm.find("humid") != std::string::npos)
+            else if (norm.find("humid") != std::string::npos || norm.find("moisture") != std::string::npos)
                 metric_key = "bme280.humidity_pct";
-            else if (norm.find("basinc") != std::string::npos || norm.find("press") != std::string::npos)
+            else if (norm.find("press") != std::string::npos || norm.find("baromet") != std::string::npos)
                 metric_key = "bme280.pressure_hpa";
-            else if (norm.find("mpu sicak") != std::string::npos || norm.find("islemci") != std::string::npos)
+            else if (norm.find("mpu temp") != std::string::npos || norm.find("imu temp") != std::string::npos)
                 metric_key = "mpu6050.temp_c";
-            else if ((norm.find("ivme") != std::string::npos || norm.find("accel") != std::string::npos) &&
-                      norm.find(".x") != std::string::npos)
+            else if (norm.find("accel") != std::string::npos && norm.find(".x") != std::string::npos)
                 metric_key = "mpu6050.accel_g.x";
-            else if ((norm.find("ivme") != std::string::npos || norm.find("accel") != std::string::npos) &&
-                      norm.find(".y") != std::string::npos)
+            else if (norm.find("accel") != std::string::npos && norm.find(".y") != std::string::npos)
                 metric_key = "mpu6050.accel_g.y";
-            else if ((norm.find("ivme") != std::string::npos || norm.find("accel") != std::string::npos))
+            else if (norm.find("accel") != std::string::npos)
                 metric_key = "mpu6050.accel_g.z";
-            else if (norm.find("gyro") != std::string::npos || norm.find("jiro") != std::string::npos)
+            else if (norm.find("gyro") != std::string::npos)
                 metric_key = "mpu6050.gyro_dps.x";
-            else if (norm.find("heading") != std::string::npos || norm.find("pusula") != std::string::npos)
+            else if (norm.find("heading") != std::string::npos || norm.find("compass") != std::string::npos)
                 metric_key = "qmc5883l.heading_deg";
 
             if (!metric_key.empty()) {
@@ -214,13 +211,13 @@ IntentRouter::Intent IntentRouter::parse(const std::string& msg_tr,
         }
     }
 
-    // ----- 0c. SET SENSOR ENABLED ("bme280 kapat", "mpu aç") -----
+    // ----- 0c. SET SENSOR ENABLED ("disable bme280", "turn on mpu") -----
     {
         static const std::regex disable_re(
-            R"(\bkapat\b|\bdurdur\b|\bdisable\b|\bdevre\s*dis\b)",
+            R"(\bdisable\b|\bturn\s*off\b|\bstop\b|\bdeactivate\b|\bswitch\s*off\b)",
             std::regex_constants::icase);
         static const std::regex enable_re(
-            R"(\bac\b|\bacik\b|\bbasla\b|\benable\b|\baktif\s*et\b|\bdevreye\s*al\b)",
+            R"(\benable\b|\bturn\s*on\b|\bstart\b|\bactivate\b|\bswitch\s*on\b)",
             std::regex_constants::icase);
         bool want_disable = std::regex_search(norm, disable_re);
         bool want_enable  = std::regex_search(norm, enable_re);
@@ -238,13 +235,17 @@ IntentRouter::Intent IntentRouter::parse(const std::string& msg_tr,
         }
     }
 
-    // ----- 1a. SET SAMPLE RATE (sensor + hz) -----
+    // ----- 1a. SET SAMPLE RATE (sensor + number + hz/frequency) -----
+    // "mpu 20hz", "bme sample rate 10", "qmc 50 hertz"
     {
-        std::regex re(
-            R"((bme280|bme|mpu6500|mpu6050|mpu|qmc5883l?|qmc).{0,30}?(\d+)\s*h(?:z|ertz))",
+        static const std::regex re(
+            R"((bme280|bme|mpu6500|mpu6050|mpu|qmc5883l?|qmc).{0,30}?(\d+)\s*(?:h(?:z|ertz))?)",
+            std::regex_constants::icase);
+        static const std::regex rate_kw_re(
+            R"(hz|hertz|frequency|sampling|sample.?rate)",
             std::regex_constants::icase);
         std::smatch m;
-        if (std::regex_search(norm, m, re)) {
+        if (std::regex_search(norm, m, re) && std::regex_search(norm, rate_kw_re)) {
             std::string raw = m[1].str();
             int hz = std::stoi(m[2].str());
             std::string sensor;
@@ -256,9 +257,9 @@ IntentRouter::Intent IntentRouter::parse(const std::string& msg_tr,
         }
     }
 
-    // ----- 1b. SET SAMPLE RATE (sadece hz, context'ten sensor) -----
+    // ----- 1b. SET SAMPLE RATE (sadece sayi + hz/frekans, context'ten sensor) -----
     {
-        std::regex re(R"((\d+)\s*h(?:z|ertz))", std::regex_constants::icase);
+        static const std::regex re(R"((\d+)\s*h(?:z|ertz))", std::regex_constants::icase);
         std::smatch m;
         if (std::regex_search(norm, m, re)) {
             int hz = std::stoi(m[1].str());
@@ -268,17 +269,16 @@ IntentRouter::Intent IntentRouter::parse(const std::string& msg_tr,
         }
     }
 
-    // ----- 2. HISTORY STATS (acik zaman penceresi: "son X saniye") -----
+    // ----- 2. HISTORY STATS (time window: "last X seconds / minutes") -----
     {
-        std::regex re(R"(son\s+(\d+)\s+(saniye|sn|dakika|dk|min|minute))",
+        std::regex re(R"(last\s+(\d+)\s*(sec(?:ond)?s?|min(?:ute)?s?))",
                       std::regex_constants::icase);
         std::smatch m;
         if (std::regex_search(norm, m, re)) {
             int n = std::stoi(m[1].str());
             std::string unit = m[2].str();
             int seconds = n;
-            if (unit == "dakika" || unit == "dk" ||
-                unit == "min" || unit == "minute") seconds = n * 60;
+            if (unit.rfind("min", 0) == 0) seconds = n * 60;
 
             std::string sensor = detect_sensor(norm);
             if (sensor.empty()) {
@@ -294,7 +294,7 @@ IntentRouter::Intent IntentRouter::parse(const std::string& msg_tr,
 
     // ----- 3. ALL SENSORS -----
     {
-        std::regex re(R"(\btum\b|hepsi|butun|all\s*sensor)",
+        std::regex re(R"(\ball\b.*sensor|every.*sensor|sensor.*all|show.*all|read.*all)",
                       std::regex_constants::icase);
         if (std::regex_search(norm, re)) {
             return {true, "get_current", {{"sensor", "all"}}, msg_tr};
