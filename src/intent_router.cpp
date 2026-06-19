@@ -136,13 +136,18 @@ IntentRouter::Intent IntentRouter::parse(const std::string& msg_tr,
                                           const std::string& last_sensor_hint) {
     std::string norm = normalize(msg_tr);
 
-    // ----- 0a. GET CONFIG ("what can I change", "show settings", "list thresholds") -----
+    // ----- 0a. GET CONFIG -----
+    // Broad match: any phrasing around "what/which can be changed/configured/adjusted"
     {
         static const std::regex re(
             "show.*setting|list.*setting|show.*config|get.*config|"
-            "what.*can.*change|what.*adjust|what.*configur|"
+            "what.*can.*chang|what.*can.*adjust|what.*can.*config|"
+            "which.*can.*chang|which.*can.*adjust|which.*param|"
+            "how.*do.*i.*chang|how.*can.*i.*chang|how.*to.*chang|how.*to.*set|"
+            "i.*want.*to.*chang|want.*to.*adjust|can.*i.*chang|can.*you.*chang|"
             "list.*threshold|show.*threshold|list.*limit|show.*limit|"
-            "show.*parameter|all.*setting|current.*config|print.*config",
+            "show.*parameter|what.*parameter|which.*parameter|"
+            "all.*setting|current.*config|print.*config|what.*setting",
             std::regex_constants::icase);
         if (std::regex_search(norm, re)) {
             return {true, "get_config", json::object(), msg_tr};
