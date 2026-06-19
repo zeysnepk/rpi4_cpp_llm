@@ -487,6 +487,10 @@ std::string ToolDispatcher::format_for_llm(const std::string& tool_name,
             }
         }
         os << "\n[Mode] " << tr.value("mode","?") << "\n";
+        os << "\nTo change any value, start your message with 'set'. Examples:\n";
+        os << "  set temperature max to 35\n";
+        os << "  set bme sample rate 10 hz\n";
+        os << "  set mpu disabled\n";
         return os.str();
     }
 

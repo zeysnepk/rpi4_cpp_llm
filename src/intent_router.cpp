@@ -149,7 +149,7 @@ IntentRouter::Intent IntentRouter::parse(const std::string& msg_tr,
         }
     }
 
-    // ----- 0b. SET THRESHOLD ("set temperature max to 35", "humidity upper limit 70") -----
+    // ----- 0b. SET THRESHOLD — requires "set" keyword for safety -----
     {
         // Min/max direction detection
         bool has_lower = norm.find("lower")   != std::string::npos ||
@@ -172,7 +172,8 @@ IntentRouter::Intent IntentRouter::parse(const std::string& msg_tr,
         static const std::regex val_re(R"((-?\d+(?:\.\d+)?))");
         std::smatch val_m;
 
-        if (is_threshold && std::regex_search(norm, val_m, val_re)) {
+        if (norm.find("set") != std::string::npos &&
+            is_threshold && std::regex_search(norm, val_m, val_re)) {
             double val = std::stod(val_m[1].str());
 
             // Metric detection for thresholds (broader matching)
@@ -222,7 +223,7 @@ IntentRouter::Intent IntentRouter::parse(const std::string& msg_tr,
         bool want_disable = std::regex_search(norm, disable_re);
         bool want_enable  = std::regex_search(norm, enable_re);
 
-        if (want_disable || want_enable) {
+        if ((want_disable || want_enable) && norm.find("set") != std::string::npos) {
             std::string sensor_en;
             if (norm.find("bme") != std::string::npos)       sensor_en = "bme280";
             else if (norm.find("mpu") != std::string::npos)  sensor_en = "mpu6050";
@@ -245,7 +246,8 @@ IntentRouter::Intent IntentRouter::parse(const std::string& msg_tr,
             R"(hz|hertz|frequency|sampling|sample.?rate)",
             std::regex_constants::icase);
         std::smatch m;
-        if (std::regex_search(norm, m, re) && std::regex_search(norm, rate_kw_re)) {
+        if (norm.find("set") != std::string::npos &&
+            std::regex_search(norm, m, re) && std::regex_search(norm, rate_kw_re)) {
             std::string raw = m[1].str();
             int hz = std::stoi(m[2].str());
             std::string sensor;
@@ -257,11 +259,11 @@ IntentRouter::Intent IntentRouter::parse(const std::string& msg_tr,
         }
     }
 
-    // ----- 1b. SET SAMPLE RATE (sadece sayi + hz/frekans, context'ten sensor) -----
+    // ----- 1b. SET SAMPLE RATE (number + hz only, sensor from context) -----
     {
         static const std::regex re(R"((\d+)\s*h(?:z|ertz))", std::regex_constants::icase);
         std::smatch m;
-        if (std::regex_search(norm, m, re)) {
+        if (norm.find("set") != std::string::npos && std::regex_search(norm, m, re)) {
             int hz = std::stoi(m[1].str());
             std::string sensor = last_sensor_hint.empty() ? "bme280" : last_sensor_hint;
             return {true, "set_sample_rate",
