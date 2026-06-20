@@ -25,7 +25,7 @@ fi
 # ============================================================
 # MODEL
 # ============================================================
-MODEL_FILE="Qwen3-1.7B-Q4_K_M.gguf"   # stock model — full English pipeline
+MODEL_FILE="qwen2.5-1.5b-instruct-q4_k_m.gguf"   # stock model — full English pipeline
 
 # Alternatifler:
 # MODEL_FILE="qwen3-1.7b.Q4_K_M_v5.gguf"   # TR fine-tune (eski)
@@ -57,7 +57,7 @@ echo "════════════════════════�
     -m "$MODEL" \
     --host 127.0.0.1 --port 8080 \
     -t $THREADS \
-    -c 2048 \
+    -c 4096 \
     -b 128 \
     -np 1 \
     --mlock \

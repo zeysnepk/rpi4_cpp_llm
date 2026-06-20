@@ -393,6 +393,306 @@ async function loadTranslatorStatus() {
     } catch { /* ignore */ }
 }
 
+// ============================================================
+// EXAMPLE CHIPS
+// ============================================================
+const EXAMPLE_PROMPTS = [
+    { icon: '🌡', label: 'Temperature',    text: 'What is the current temperature?' },
+    { icon: '💧', label: 'Humidity',       text: 'What is the current humidity?' },
+    { icon: '📊', label: '30s trend',      text: 'Show me the last 30 seconds trend for bme280' },
+    { icon: '🔢', label: 'Last 10 reads',  text: 'Show last 10 readings of bme280' },
+    { icon: '⚠️', label: 'Anomalies',      text: 'Are there any anomalies right now?' },
+    { icon: '📡', label: 'All sensors',    text: 'Show all sensor readings' },
+    { icon: '🧭', label: 'Heading',        text: 'What is the compass heading?' },
+    { icon: '⚙',  label: 'What can I set', text: 'What can I change?' },
+];
+
+function initExampleChips() {
+    const wrap = document.getElementById('exampleChips');
+    if (!wrap) return;
+    EXAMPLE_PROMPTS.forEach(p => {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'chip';
+        btn.innerHTML = `<span class="chip-icon">${p.icon}</span>${p.label}`;
+        btn.title = p.text;
+        btn.addEventListener('click', () => {
+            input.value = p.text;
+            input.style.height = 'auto';
+            input.style.height = Math.min(input.scrollHeight, 160) + 'px';
+            input.focus();
+            form.requestSubmit();
+        });
+        wrap.appendChild(btn);
+    });
+}
+
+// ============================================================
+// SETTINGS PANEL
+// ============================================================
+const SENSOR_DEFS = [
+    { key: 'bme280',   label: 'BME280',   maxHz: 50  },
+    { key: 'mpu6050',  label: 'MPU6500',  maxHz: 200 },
+    { key: 'qmc5883l', label: 'QMC5883L', maxHz: 20  },
+];
+const THRESHOLD_LABELS = {
+    'bme280.temperature_c': 'Temperature (°C)',
+    'bme280.humidity_pct':  'Humidity (%)',
+    'bme280.pressure_hpa':  'Pressure (hPa)',
+    'mpu6050.accel_g.x':    'Accel X (g)',
+    'mpu6050.accel_g.y':    'Accel Y (g)',
+    'mpu6050.accel_g.z':    'Accel Z (g)',
+    'mpu6050.gyro_dps.x':   'Gyro X (°/s)',
+    'mpu6050.gyro_dps.y':   'Gyro Y (°/s)',
+    'mpu6050.gyro_dps.z':   'Gyro Z (°/s)',
+    'mpu6050.temp_c':       'Internal Temp (°C)',
+    'qmc5883l.heading_deg': 'Heading (°)',
+};
+
+async function callTool(name, args) {
+    const r = await fetch('/api/tool', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, args })
+    });
+    if (!r.ok) throw new Error(`tool ${name} failed: ${r.status}`);
+    return r.json();
+}
+
+function flashBtn(btn, ok) {
+    const cls = ok ? 'ok-flash' : 'err-flash';
+    btn.classList.add(cls);
+    const prev = btn.textContent;
+    btn.textContent = ok ? '✓' : '✗';
+    setTimeout(() => {
+        btn.classList.remove(cls);
+        btn.textContent = prev;
+    }, 1200);
+}
+
+function buildSensorPane(sensorKey, sensorCfg, allThresholds, maxHz) {
+    const pane = document.createElement('div');
+    pane.className = 'spane';
+    pane.id = 'spane-' + sensorKey;
+
+    // ── Enable toggle ──
+    const enSection = document.createElement('div');
+    enSection.className = 's-section';
+    enSection.textContent = 'SENSOR';
+    pane.appendChild(enSection);
+
+    const enRow = document.createElement('div');
+    enRow.className = 's-row';
+    const enLabel = document.createElement('span');
+    enLabel.className = 's-label';
+    enLabel.textContent = 'Enable sensor';
+
+    const togWrap = document.createElement('div');
+    togWrap.className = 'tog-wrap';
+    const togLabel = document.createElement('span');
+    togLabel.className = 'tog-label';
+    togLabel.textContent = sensorCfg?.enabled !== false ? 'ON' : 'OFF';
+
+    const togEl = document.createElement('label');
+    togEl.className = 'tog';
+    const togInput = document.createElement('input');
+    togInput.type = 'checkbox';
+    togInput.checked = sensorCfg?.enabled !== false;
+    const togTrack = document.createElement('span');
+    togTrack.className = 'tog-track';
+    togEl.appendChild(togInput);
+    togEl.appendChild(togTrack);
+
+    togInput.addEventListener('change', async () => {
+        togLabel.textContent = togInput.checked ? 'ON' : 'OFF';
+        try {
+            await callTool('set_sensor_enabled', {
+                sensor: sensorKey,
+                enabled: togInput.checked
+            });
+        } catch { togInput.checked = !togInput.checked; togLabel.textContent = togInput.checked ? 'ON' : 'OFF'; }
+    });
+
+    togWrap.appendChild(togLabel);
+    togWrap.appendChild(togEl);
+    enRow.appendChild(enLabel);
+    enRow.appendChild(togWrap);
+    pane.appendChild(enRow);
+
+    // ── Sample rate slider ──
+    const rateSection = document.createElement('div');
+    rateSection.className = 's-section';
+    rateSection.textContent = 'SAMPLE RATE';
+    pane.appendChild(rateSection);
+
+    const rateRow = document.createElement('div');
+    rateRow.className = 'rate-row';
+
+    const slider = document.createElement('input');
+    slider.type = 'range';
+    slider.className = 'rate-slider';
+    slider.min = 1;
+    slider.max = maxHz;
+    slider.value = sensorCfg?.sample_rate_hz ?? 10;
+
+    const rateVal = document.createElement('span');
+    rateVal.className = 'rate-val';
+    rateVal.textContent = slider.value + ' Hz';
+
+    const rateApply = document.createElement('button');
+    rateApply.className = 's-apply';
+    rateApply.textContent = 'Apply';
+
+    slider.addEventListener('input', () => {
+        rateVal.textContent = slider.value + ' Hz';
+    });
+    rateApply.addEventListener('click', async () => {
+        rateApply.disabled = true;
+        try {
+            await callTool('set_sample_rate', {
+                sensor: sensorKey,
+                hz: parseInt(slider.value)
+            });
+            flashBtn(rateApply, true);
+        } catch { flashBtn(rateApply, false); }
+        finally { rateApply.disabled = false; }
+    });
+
+    rateRow.appendChild(slider);
+    rateRow.appendChild(rateVal);
+    rateRow.appendChild(rateApply);
+    pane.appendChild(rateRow);
+
+    // ── Thresholds ──
+    const thr = Object.entries(allThresholds || {})
+        .filter(([k]) => k.startsWith(sensorKey));
+    if (thr.length > 0) {
+        const thrSection = document.createElement('div');
+        thrSection.className = 's-section';
+        thrSection.textContent = 'ANOMALY THRESHOLDS';
+        pane.appendChild(thrSection);
+
+        const table = document.createElement('table');
+        table.className = 'thr-table';
+
+        thr.forEach(([metric, vals]) => {
+            const tr = document.createElement('tr');
+
+            const tdLabel = document.createElement('td');
+            const nameSpan = document.createElement('span');
+            nameSpan.className = 'thr-metric';
+            nameSpan.textContent = THRESHOLD_LABELS[metric] || metric;
+            tdLabel.appendChild(nameSpan);
+
+            const tdRange = document.createElement('td');
+            const rangeDiv = document.createElement('div');
+            rangeDiv.className = 'thr-range';
+
+            const minInput = document.createElement('input');
+            minInput.type = 'number';
+            minInput.className = 'thr-input';
+            minInput.value = vals.min ?? '';
+            minInput.step = 'any';
+            minInput.placeholder = 'min';
+
+            const sep = document.createElement('span');
+            sep.className = 'thr-sep';
+            sep.textContent = '—';
+
+            const maxInput = document.createElement('input');
+            maxInput.type = 'number';
+            maxInput.className = 'thr-input';
+            maxInput.value = vals.max ?? '';
+            maxInput.step = 'any';
+            maxInput.placeholder = 'max';
+
+            const applyBtn = document.createElement('button');
+            applyBtn.className = 's-apply';
+            applyBtn.textContent = 'Apply';
+            applyBtn.addEventListener('click', async () => {
+                applyBtn.disabled = true;
+                const args = { metric };
+                if (minInput.value !== '') args.min = parseFloat(minInput.value);
+                if (maxInput.value !== '') args.max = parseFloat(maxInput.value);
+                try {
+                    await callTool('set_threshold', args);
+                    flashBtn(applyBtn, true);
+                } catch { flashBtn(applyBtn, false); }
+                finally { applyBtn.disabled = false; }
+            });
+
+            rangeDiv.appendChild(minInput);
+            rangeDiv.appendChild(sep);
+            rangeDiv.appendChild(maxInput);
+            rangeDiv.appendChild(applyBtn);
+            tdRange.appendChild(rangeDiv);
+
+            tr.appendChild(tdLabel);
+            tr.appendChild(tdRange);
+            table.appendChild(tr);
+        });
+        pane.appendChild(table);
+    }
+
+    return pane;
+}
+
+async function loadSettings() {
+    try {
+        const r = await fetch('/api/config');
+        if (!r.ok) return;
+        const cfg = await r.json();
+
+        const tabsEl  = document.getElementById('settingsTabs');
+        const panesEl = document.getElementById('settingsPanes');
+        if (!tabsEl || !panesEl) return;
+        tabsEl.innerHTML  = '';
+        panesEl.innerHTML = '';
+
+        let first = true;
+        for (const { key, label, maxHz } of SENSOR_DEFS) {
+            const sensorCfg = cfg.sensors?.[key] || {};
+            const thresholds = cfg.thresholds || {};
+
+            // Tab button
+            const tab = document.createElement('button');
+            tab.className = 'stab' + (first ? ' active' : '');
+            tab.textContent = label;
+            tab.dataset.target = key;
+            tab.addEventListener('click', () => {
+                tabsEl.querySelectorAll('.stab').forEach(t => t.classList.remove('active'));
+                panesEl.querySelectorAll('.spane').forEach(p => p.classList.remove('active'));
+                tab.classList.add('active');
+                document.getElementById('spane-' + key)?.classList.add('active');
+            });
+            tabsEl.appendChild(tab);
+
+            // Pane
+            const pane = buildSensorPane(key, sensorCfg, thresholds, maxHz);
+            if (first) pane.classList.add('active');
+            panesEl.appendChild(pane);
+
+            first = false;
+        }
+    } catch (e) {
+        const panesEl = document.getElementById('settingsPanes');
+        if (panesEl) panesEl.innerHTML = '<div class="settings-loading">Failed to load config.</div>';
+    }
+}
+
+function initSettingsPanel() {
+    const hdr  = document.getElementById('settingsHdr');
+    const body = document.getElementById('settingsBody');
+    const chev = document.getElementById('settingsChevron');
+    if (!hdr || !body) return;
+
+    hdr.addEventListener('click', () => {
+        const collapsed = body.style.display === 'none';
+        body.style.display = collapsed ? '' : 'none';
+        chev.classList.toggle('closed', !collapsed);
+    });
+}
+
 window.addEventListener('DOMContentLoaded', () => {
     initCharts();
     checkHealth();
@@ -402,5 +702,8 @@ window.addEventListener('DOMContentLoaded', () => {
     loadTranslatorStatus();
     setInterval(loadTranslatorStatus, 30000);
     setInterval(() => { if (latestSensors) scheduleChartUpdate(); }, 1000);
+    initExampleChips();
+    initSettingsPanel();
+    loadSettings();
     input.focus();
 });

@@ -7,11 +7,11 @@
   "sensors": {
     "bme280": {
       "enabled": true,
-      "sample_rate_hz": 100
+      "sample_rate_hz": 20
     },
     "mpu6050": {
       "enabled": true,
-      "sample_rate_hz": 20
+      "sample_rate_hz": 100
     },
     "qmc5883l": {
       "enabled": true,
@@ -21,7 +21,7 @@
   "thresholds": {
     "bme280.humidity_pct": {
       "label": "comfort humidity",
-      "max": 100.0,
+      "max": 280.0,
       "min": 20.0
     },
     "bme280.pressure_hpa": {
@@ -31,8 +31,8 @@
     },
     "bme280.temperature_c": {
       "label": "room temperature",
-      "max": 38.0,
-      "min": 15
+      "max": 35.0,
+      "min": 15.0
     },
     "mpu6050.accel_g.x": {
       "label": "X accel (static)",

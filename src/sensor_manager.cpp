@@ -71,7 +71,7 @@ SensorManager::SensorManager(const nlohmann::json& config)
         }
         if (s->init()) {
             std::cout << "  " << key << ": online @ " << rate << " Hz\n";
-            sensors_[s->name()] = SensorInfo{ s, rate, clock_t_::now(), {} };
+            sensors_[s->name()] = SensorInfo{ s, rate, clock_t_::now(), {}, enabled };
             s->set_rate(rate);
         } else {
             std::cout << "  " << key << ": init basarisiz\n";
@@ -105,6 +105,7 @@ void SensorManager::run_loop() {
         {
             std::lock_guard<std::mutex> lk(mtx_);
             for (auto& [name, info] : sensors_) {
+                if (!info.enabled) continue;
                 if (now >= info.next_sample) {
                     auto data = info.sensor->read();
                     if (!data.empty()) {
@@ -126,6 +127,10 @@ nlohmann::json SensorManager::latest_all() const {
     std::lock_guard<std::mutex> lk(mtx_);
     nlohmann::json out = nlohmann::json::object();
     for (const auto& [name, info] : sensors_) {
+        if (!info.enabled) {
+            out[name] = {{"online", false}, {"enabled", false}, {"data", nullptr}};
+            continue;
+        }
         if (!info.history.empty()) {
             const auto& last = info.history.back();
             out[name] = {
@@ -155,6 +160,31 @@ nlohmann::json SensorManager::history(const std::string& name, int seconds) cons
     return arr;
 }
 
+nlohmann::json SensorManager::latest_n(const std::string& name, int count) const {
+    std::lock_guard<std::mutex> lk(mtx_);
+    if (count < 1) count = 1;
+    if (count > 200) count = 200;
+
+    auto make_arr = [&](const SensorInfo& info) {
+        const auto& hist = info.history;
+        nlohmann::json arr = nlohmann::json::array();
+        size_t start = hist.size() > (size_t)count ? hist.size() - count : 0;
+        for (size_t i = start; i < hist.size(); i++)
+            arr.push_back({{"t", hist[i].timestamp_ms}, {"d", hist[i].data}});
+        return arr;
+    };
+
+    if (name == "all") {
+        nlohmann::json out = nlohmann::json::object();
+        for (const auto& [sname, info] : sensors_)
+            out[sname] = make_arr(info);
+        return out;
+    }
+    auto it = sensors_.find(name);
+    if (it == sensors_.end()) return nlohmann::json::array();
+    return make_arr(it->second);
+}
+
 bool SensorManager::set_sample_rate(const std::string& name, int hz) {
     std::lock_guard<std::mutex> lk(mtx_);
     auto it = sensors_.find(name);
@@ -163,5 +193,13 @@ bool SensorManager::set_sample_rate(const std::string& name, int hz) {
     if (hz > 200) hz = 200;
     it->second.rate_hz = hz;
     it->second.sensor->set_rate(hz);
+    return true;
+}
+
+bool SensorManager::set_enabled(const std::string& name, bool enabled) {
+    std::lock_guard<std::mutex> lk(mtx_);
+    auto it = sensors_.find(name);
+    if (it == sensors_.end()) return false;
+    it->second.enabled = enabled;
     return true;
 }

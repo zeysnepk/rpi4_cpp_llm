@@ -147,7 +147,8 @@ IntentRouter::Intent IntentRouter::parse(const std::string& msg_tr,
             "i.*want.*to.*chang|want.*to.*adjust|can.*i.*chang|can.*you.*chang|"
             "list.*threshold|show.*threshold|list.*limit|show.*limit|"
             "show.*parameter|what.*parameter|which.*parameter|"
-            "all.*setting|current.*config|print.*config|what.*setting",
+            "all.*setting|current.*config|print.*config|what.*setting|"
+            "just.*it|is.*that.*all|that.*all|is.*everything|anything.*more.*change",
             std::regex_constants::icase);
         if (std::regex_search(norm, re)) {
             return {true, "get_config", json::object(), msg_tr};
@@ -201,6 +202,16 @@ IntentRouter::Intent IntentRouter::parse(const std::string& msg_tr,
                 metric_key = "mpu6050.gyro_dps.x";
             else if (norm.find("heading") != std::string::npos || norm.find("compass") != std::string::npos)
                 metric_key = "qmc5883l.heading_deg";
+
+            // Fallback: sensor name without metric — default to most common metric
+            if (metric_key.empty()) {
+                if (norm.find("bme") != std::string::npos)
+                    metric_key = "bme280.temperature_c";
+                else if (norm.find("mpu") != std::string::npos)
+                    metric_key = "mpu6050.temp_c";
+                else if (norm.find("qmc") != std::string::npos)
+                    metric_key = "qmc5883l.heading_deg";
+            }
 
             if (!metric_key.empty()) {
                 json args = {{"metric", metric_key}};
@@ -273,6 +284,35 @@ IntentRouter::Intent IntentRouter::parse(const std::string& msg_tr,
             std::string sensor = last_sensor_hint.empty() ? "bme280" : last_sensor_hint;
             return {true, "set_sample_rate",
                     {{"sensor", sensor}, {"hz", hz}}, msg_tr};
+        }
+    }
+
+    // ----- 1c. GET HISTORY RAW (last N readings/values/samples) -----
+    // Must come before HISTORY STATS to catch count-based queries first.
+    {
+        static const std::regex re(
+            R"(last\s+(\d+)\s*(?:\w+\s+)?(?:reading|value|sample|data\s*point|measurement|entr(?:y|ies)|data)s?)",
+            std::regex_constants::icase);
+        std::smatch m;
+        if (std::regex_search(norm, m, re)) {
+            int count = std::stoi(m[1].str());
+            if (count > 100) count = 100;
+
+            bool want_all = norm.find("all")   != std::string::npos ||
+                            norm.find("each")  != std::string::npos ||
+                            norm.find("every") != std::string::npos;
+
+            std::string sensor;
+            if (want_all) {
+                sensor = "all";
+            } else {
+                sensor = detect_sensor(norm);
+                if (sensor.empty())
+                    sensor = last_sensor_hint.empty() ? "bme280" : last_sensor_hint;
+            }
+            return {true, "get_history_raw",
+                    {{"sensor", sensor}, {"count", count}},
+                    msg_tr};
         }
     }
 

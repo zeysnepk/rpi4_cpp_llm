@@ -20,52 +20,80 @@ ToolDispatcher::ToolDispatcher(SensorManager& sensors,
 // ============================================================
 json ToolDispatcher::get_tool_definitions() const {
     return json::array({
-        {
-            {"type", "function"},
-            {"function", {
-                {"name", "get_current"},
-                {"description", "Sensorun anlik son okumasi"},
-                {"parameters", {
-                    {"type", "object"},
-                    {"properties", {
-                        {"sensor", {{"type","string"},
-                                    {"enum",{"bme280","mpu6050","qmc5883l","all"}}}}
-                    }},
-                    {"required", json::array({"sensor"})}
-                }}
+        {{"type","function"}, {"function", {
+            {"name","get_current"},
+            {"description","Get the latest sensor reading(s). Use when the user asks about current values."},
+            {"parameters", {{"type","object"},
+                {"properties", {{"sensor", {
+                    {"type","string"},
+                    {"enum", json::array({"bme280","mpu6050","qmc5883l","all"})},
+                    {"description","bme280=temp/humidity/pressure, mpu6050=accel/gyro, qmc5883l=compass/heading, all=all sensors"}
+                }}}},
+                {"required", json::array({"sensor"})}
             }}
-        },
-        {
-            {"type", "function"},
-            {"function", {
-                {"name", "get_history_stats"},
-                {"description", "Bir sensor metriginin son N sn istatistigi (min/max/avg/trend)"},
-                {"parameters", {
-                    {"type", "object"},
-                    {"properties", {
-                        {"sensor",  {{"type","string"}}},
-                        {"metric",  {{"type","string"}}},
-                        {"seconds", {{"type","integer"},{"minimum",1},{"maximum",600}}}
-                    }},
-                    {"required", json::array({"sensor","metric","seconds"})}
-                }}
+        }}},
+        {{"type","function"}, {"function", {
+            {"name","get_history_stats"},
+            {"description","Statistical summary (avg/min/max/trend) over a time window. Use for 'last X seconds/minutes' queries."},
+            {"parameters", {{"type","object"},
+                {"properties", {
+                    {"sensor",  {{"type","string"}, {"enum", json::array({"bme280","mpu6050","qmc5883l"})}}},
+                    {"metric",  {{"type","string"}, {"description","e.g. temperature_c, humidity_pct, pressure_hpa, accel_g.x, gyro_dps.z, heading_deg"}}},
+                    {"seconds", {{"type","integer"}, {"minimum",1}, {"maximum",600}}}
+                }},
+                {"required", json::array({"sensor","metric","seconds"})}
             }}
-        },
-        {
-            {"type", "function"},
-            {"function", {
-                {"name", "set_sample_rate"},
-                {"description", "Sensor ornekleme hizini degistir"},
-                {"parameters", {
-                    {"type", "object"},
-                    {"properties", {
-                        {"sensor", {{"type","string"}}},
-                        {"hz",     {{"type","integer"},{"minimum",1},{"maximum",200}}}
-                    }},
-                    {"required", json::array({"sensor","hz"})}
-                }}
+        }}},
+        {{"type","function"}, {"function", {
+            {"name","get_history_raw"},
+            {"description","Return the last N individual sensor readings. Use for 'last N readings/values/samples/data' queries."},
+            {"parameters", {{"type","object"},
+                {"properties", {
+                    {"sensor", {{"type","string"}, {"enum", json::array({"bme280","mpu6050","qmc5883l","all"})}}},
+                    {"count",  {{"type","integer"}, {"minimum",1}, {"maximum",100}, {"description","Number of individual readings to return"}}}
+                }},
+                {"required", json::array({"sensor","count"})}
             }}
-        }
+        }}},
+        {{"type","function"}, {"function", {
+            {"name","get_config"},
+            {"description","Show all configurable parameters: sensor sample rates, anomaly thresholds. Use when user asks what can be changed or configured."},
+            {"parameters", {{"type","object"}, {"properties", json::object()}, {"required", json::array()}}}
+        }}},
+        {{"type","function"}, {"function", {
+            {"name","set_threshold"},
+            {"description","Update anomaly detection threshold (min/max) for a sensor metric. ONLY call if user message contains the word 'set'."},
+            {"parameters", {{"type","object"},
+                {"properties", {
+                    {"metric", {{"type","string"}, {"description","e.g. bme280.temperature_c, bme280.humidity_pct, mpu6050.accel_g.x"}}},
+                    {"min",    {{"type","number"}}},
+                    {"max",    {{"type","number"}}}
+                }},
+                {"required", json::array({"metric"})}
+            }}
+        }}},
+        {{"type","function"}, {"function", {
+            {"name","set_sample_rate"},
+            {"description","Change sensor sampling frequency in Hz. ONLY call if user message contains the word 'set'."},
+            {"parameters", {{"type","object"},
+                {"properties", {
+                    {"sensor", {{"type","string"}, {"enum", json::array({"bme280","mpu6050","qmc5883l"})}}},
+                    {"hz",     {{"type","integer"}, {"minimum",1}, {"maximum",200}}}
+                }},
+                {"required", json::array({"sensor","hz"})}
+            }}
+        }}},
+        {{"type","function"}, {"function", {
+            {"name","set_sensor_enabled"},
+            {"description","Enable or disable a sensor. ONLY call if user message contains the word 'set'."},
+            {"parameters", {{"type","object"},
+                {"properties", {
+                    {"sensor",  {{"type","string"}, {"enum", json::array({"bme280","mpu6050","qmc5883l"})}}},
+                    {"enabled", {{"type","boolean"}}}
+                }},
+                {"required", json::array({"sensor","enabled"})}
+            }}
+        }}}
     });
 }
 
@@ -76,6 +104,7 @@ json ToolDispatcher::execute(const std::string& name, const json& args) {
     try {
         if (name == "get_current")        return tool_get_current(args);
         if (name == "get_history_stats")  return tool_get_history_stats(args);
+        if (name == "get_history_raw")    return tool_get_history_raw(args);
         if (name == "set_sample_rate")    return tool_set_sample_rate(args);
         if (name == "set_threshold")      return tool_set_threshold(args);
         if (name == "set_sensor_enabled") return tool_set_sensor_enabled(args);
@@ -248,6 +277,35 @@ json ToolDispatcher::tool_get_history_stats(const json& args) {
 }
 
 // ============================================================
+// GET HISTORY RAW — last N individual readings
+// args: {sensor: "bme280"|"all", count: N}
+// ============================================================
+json ToolDispatcher::tool_get_history_raw(const json& args) {
+    std::string sensor = args.at("sensor");
+    int count = args.value("count", 10);
+    if (count < 1)   count = 1;
+    if (count > 100) count = 100;
+
+    {
+        auto cfg = load_config();
+        if (sensor != "all" && cfg.contains("sensors") && cfg["sensors"].contains(sensor)) {
+            if (!cfg["sensors"][sensor].value("enabled", true))
+                return {{"error", sensor + " sensor is disabled. Enable it first."}};
+        }
+    }
+
+    auto raw = sensors_.latest_n(sensor, count);
+
+    if (sensor == "all") {
+        return {{"sensor", "all"}, {"count_per_sensor", count}, {"sensors", raw}};
+    }
+    if (raw.is_array() && raw.empty())
+        return {{"error", "No data for sensor: " + sensor}};
+
+    return {{"sensor", sensor}, {"count", (int)raw.size()}, {"readings", raw}};
+}
+
+// ============================================================
 // SET SAMPLE RATE (degisiklik yok)
 // ============================================================
 json ToolDispatcher::tool_set_sample_rate(const json& args) {
@@ -329,16 +387,14 @@ json ToolDispatcher::tool_set_sensor_enabled(const json& args) {
         return {{"error","Unknown sensor: " + sensor}};
     }
 
-    bool was_enabled = cfg["sensors"][sensor].value("enabled", true);
     cfg["sensors"][sensor]["enabled"] = enabled;
+    sensors_.set_enabled(sensor, enabled);
 
     if (!save_config(cfg)) {
-        return {{"ok",true},{"sensor",sensor},{"enabled",enabled},
-                {"warning","Changed in memory but could not save to config"},{"persisted",false}};
+        return {{"ok",true},{"sensor",sensor},{"enabled",enabled},{"persisted",false}};
     }
 
-    return {{"ok",true},{"sensor",sensor},{"enabled",enabled},
-            {"was_enabled",was_enabled},{"persisted",true}};
+    return {{"ok",true},{"sensor",sensor},{"enabled",enabled},{"persisted",true}};
 }
 
 // ============================================================
@@ -551,6 +607,52 @@ std::string ToolDispatcher::format_for_llm(const std::string& tool_name,
                 os << sname << ":\n";
                 const json* a = info.contains("analysis") ? &info["analysis"] : nullptr;
                 write_metrics(sname, info["data"], a, "  ");
+            }
+        }
+        return os.str();
+    }
+
+    if (tool_name == "get_history_raw") {
+        std::string s = tr.value("sensor", "");
+
+        // Flatten one reading's nested data into a compact line
+        auto fmt_reading = [&](const std::string& sname, const json& d) -> std::string {
+            std::ostringstream line;
+            for (const auto& [m, v] : d.items()) {
+                if (v.is_number()) {
+                    line << metric_label(sname, m) << ": "
+                         << round_str(v.get<double>(), 2) << unit_for(m) << "  ";
+                } else if (v.is_object()) {
+                    for (const auto& [sub, vv] : v.items()) {
+                        if (!vv.is_number()) continue;
+                        std::string full = m + "." + sub;
+                        line << metric_label(sname, full) << ": "
+                             << round_str(vv.get<double>(), 2) << unit_for(full) << "  ";
+                    }
+                }
+            }
+            return line.str();
+        };
+
+        if (s == "all" && tr.contains("sensors")) {
+            int n = tr.value("count_per_sensor", 0);
+            os << "Last " << n << " readings per sensor:\n";
+            for (const auto& [sname, arr] : tr["sensors"].items()) {
+                if (!arr.is_array() || arr.empty()) continue;
+                os << sname << ":\n";
+                int i = 1;
+                for (const auto& r : arr) {
+                    if (!r.contains("d")) continue;
+                    os << "  " << i++ << ". " << fmt_reading(sname, r["d"]) << "\n";
+                }
+            }
+        } else if (tr.contains("readings")) {
+            int n = tr.value("count", 0);
+            os << "Last " << n << " readings - " << s << ":\n";
+            int i = 1;
+            for (const auto& r : tr["readings"]) {
+                if (!r.contains("d")) continue;
+                os << i++ << ". " << fmt_reading(s, r["d"]) << "\n";
             }
         }
         return os.str();

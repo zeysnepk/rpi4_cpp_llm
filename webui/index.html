@@ -84,19 +84,35 @@
                     </header>
                     <div class="chart-wrap"><canvas id="chart-qmc5883l"></canvas></div>
                 </div>
+
+                <!-- Settings Panel -->
+                <div class="settings-card" id="settingsCard">
+                    <div class="settings-hdr" id="settingsHdr">
+                        <span class="settings-title-text">⚙ Settings</span>
+                        <span class="settings-chevron" id="settingsChevron">▴</span>
+                    </div>
+                    <div class="settings-body" id="settingsBody">
+                        <div class="settings-tabs" id="settingsTabs"></div>
+                        <div class="settings-panes" id="settingsPanes">
+                            <div class="settings-loading">Loading config...</div>
+                        </div>
+                    </div>
+                </div>
             </section>
 
             <!-- SAG KOLON: Chat -->
             <section class="right-column">
                 <main id="chat" class="chat">
                     <div class="message assistant">
-                        <div class="bubble">Merhaba! Sensörler aktif, sohbet edebiliriz. Veriler hakkında soru sorabilirsin.</div>
+                        <div class="bubble">Hello! The sensors are active, so we can chat. You can ask questions about the data.</div>
                     </div>
                 </main>
 
+                <div class="example-chips" id="exampleChips"></div>
+
                 <form id="form" class="composer">
-                    <textarea id="input" placeholder="Mesajınızı yazın..." rows="1"></textarea>
-                    <button type="submit" id="send">Gönder</button>
+                    <textarea id="input" placeholder="Ask about sensors..." rows="1"></textarea>
+                    <button type="submit" id="send">Send</button>
                 </form>
             </section>
         </div>

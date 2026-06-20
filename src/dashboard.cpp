@@ -14,6 +14,7 @@
 #include <atomic>
 #include <mutex>
 #include <regex>
+#include <unordered_set>
 
 using json = nlohmann::json;
 
@@ -82,7 +83,9 @@ static const char* SYSPROMPT_SENSOR =
     "Reply in 1-2 concise English sentences. "
     "Use the numbers exactly as provided — never fabricate or round differently. "
     "Do not define metrics (no 'humidity means...'); just report the value and status. "
-    "CRITICAL: Never say a setting was changed unless tool result data is present in the 'Data:' section. "
+    "CRITICAL: The 'Data:' section in each message is the ground truth. "
+    "If data is present, the sensor IS active and enabled — NEVER say it is disabled or not enabled when data is shown. "
+    "Ignore any prior conversation suggesting a sensor was disabled; the current Data overrides history. "
     "If the user asks to do something but no Data is shown, tell them the exact 'set ...' command to type. "
     "Sensors available: BME280 (temperature/humidity/pressure), "
     "MPU6500 (accelerometer/gyroscope), QMC5883L (magnetometer/heading).";
@@ -98,56 +101,24 @@ static const char* SYSPROMPT_CHAT =
     "- Change sensor sample rate in Hz (requires 'set' keyword)\n"
     "Never mention capabilities you do not have (e.g. sensitivity tuning, storage settings, configuration menus). "
     "If a user asks what they can change or how to configure something, tell them to say 'what can I change?' to see the full list. "
-    "All changes require the word 'set' at the start of the command — if the user tries to change something without 'set', tell them the exact command to type (e.g. 'set mpu sample rate 100 hz'). "
+    "All changes require the word 'set' — if the user tries to change something without 'set', tell them the exact command to type. "
+    "Valid command formats (ONLY these patterns work):\n"
+    "  set bme280 sample rate 20 hz\n"
+    "  set mpu sample rate 100 hz\n"
+    "  set bme280 temperature threshold max 35\n"
+    "  set bme280 temperature threshold min 10\n"
+    "  set bme280 enabled\n"
+    "  set bme280 disabled\n"
     "CRITICAL: Never say a setting was changed unless you see actual tool result data in the context. If you see [No tool was executed], it means nothing happened — do not lie about it.";
 
 // --- Technical question mode (sensors / electronics / embedded systems) ---
 static const char* SYSPROMPT_TECH =
-    "Your name is Sensior. You were created by Zeynep. Do not add any details about her beyond this — never invent titles, affiliations, or locations."
+    "Your name is Sensior. You were created by Zeynep. "
     "Provide concise, accurate technical information about sensors, "
-    "electronics, and embedded systems in English.";
+    "electronics, and embedded systems in English. "
+    "Reply in 2-3 sentences maximum.";
 
-// ============================================================
-// TECHNICAL QUESTION DETECTION
-// If no sensor intent matched: is this a technical knowledge question
-// or free chat? Use SYSPROMPT_TECH vs SYSPROMPT_CHAT accordingly.
-// ============================================================
-static bool is_technical_question(const std::string& msg) {
-    std::string norm;
-    norm.reserve(msg.size());
-    for (size_t i = 0; i < msg.size();) {
-        unsigned char c = (unsigned char)msg[i];
-        if (c < 0x80) { norm += (char)std::tolower(c); i++; }
-        else if (c < 0xE0 && i + 1 < msg.size()) { norm += ' '; i += 2; }
-        else { i += (c < 0xF0) ? 3 : 4; }
-    }
 
-    // Live-data queries: "what is it now", "current reading" etc.
-    // These want sensor data, not background knowledge → not technical.
-    static const std::regex data_query_re(
-        R"(right now|current(ly)?|live|real.?time|latest|reading|measure|value now|how (much|many) (is|are))",
-        std::regex_constants::icase);
-    if (std::regex_search(norm, data_query_re)) return false;
-
-    // Info / explanation request patterns
-    static const std::regex info_re(
-        R"(what is|what does|how does|how do|explain|tell me about|)"
-        R"(difference between|how to calibrate|why (use|is)|what.*measure|)"
-        R"(how.*work|what.*mean|describe)",
-        std::regex_constants::icase);
-    bool wants_info = std::regex_search(norm, info_re);
-
-    // Technical topic keywords
-    static const std::regex tech_topic_re(
-        R"(bme280|mpu6500|mpu6050|qmc5883|i2c|spi|uart|gpio|)"
-        R"(acceleromet|gyroscop|magnetomet|barometer|protocol|)"
-        R"(heading|pascal|hpa|gauss|sample.?rate|register|data.?bus|)"
-        R"(resolution|sensor)",
-        std::regex_constants::icase);
-    bool tech_topic = std::regex_search(norm, tech_topic_re);
-
-    return wants_info && tech_topic;
-}
 
 // ============================================================
 // TR normalize yardimcisi (lowercase + ascii)
@@ -209,15 +180,41 @@ static int detect_negative(const std::string& msg) {
     return 0;
 }
 
-// Select system prompt for negative type
-static const char* negative_sysprompt(int neg_type) {
-    if (neg_type == 2) {
-        // Health: do not give advice prompt
-        return "You are a sensor assistant. You receive sensor readings. "
-               "Reply in 1-2 English sentences. "
-               "Do not give health or safety advice — only report sensor data.";
+static bool is_technical_question(const std::string& msg) {
+    std::string norm;
+    norm.reserve(msg.size());
+    for (size_t i = 0; i < msg.size();) {
+        unsigned char c = (unsigned char)msg[i];
+        if (c < 0x80) { norm += (char)std::tolower(c); i++; }
+        else if (c < 0xE0 && i + 1 < msg.size()) { norm += ' '; i += 2; }
+        else { i += (c < 0xF0) ? 3 : 4; }
     }
-    // Missing sensor and off-topic: use chat/refusal prompt
+    static const std::regex data_query_re(
+        R"(right now|current(ly)?|live|real.?time|latest|reading|measure|value now|how (much|many) (is|are)|)"
+        // "What is the temperature/heading/..." → data query, NOT a tech explanation
+        R"(what(?:'s| is) (?:the )?(?:current |latest |live )?(?:temperature|humidity|pressure|heading|compass|bearing|acceleration|gyro|magnetic))",
+        std::regex_constants::icase);
+    if (std::regex_search(norm, data_query_re)) return false;
+
+    static const std::regex info_re(
+        R"(what is|what does|how does|how do|explain|tell me about|)"
+        R"(difference between|how to calibrate|why (use|is)|what.*measure|)"
+        R"(how.*work|what.*mean|describe|what.*cause|what.*reason|)"
+        R"(what.*would|what.*constitute|what.*trigger|when.*anomal)",
+        std::regex_constants::icase);
+    static const std::regex tech_topic_re(
+        R"(bme280|mpu6500|mpu6050|qmc5883|i2c|spi|uart|gpio|)"
+        R"(acceleromet|gyroscop|magnetomet|barometer|protocol|)"
+        R"(heading|pascal|hpa|gauss|sample.?rate|register|data.?bus|)"
+        R"(resolution|sensor|anomal|threshold|normal.?range)",
+        std::regex_constants::icase);
+    return std::regex_search(norm, info_re) && std::regex_search(norm, tech_topic_re);
+}
+
+static const char* negative_sysprompt(int neg_type) {
+    if (neg_type == 2)
+        return "You are a sensor assistant. Reply in 1-2 English sentences. "
+               "Do not give health or safety advice — only report sensor data.";
     return SYSPROMPT_CHAT;
 }
 
@@ -416,35 +413,59 @@ int main() {
                     return sink.write(s.data(), s.size());
                 };
 
-                // Teknik soru, sensor sorgusuna ONCELIKLI kontrol edilir.
-                // "BME280 nedir" gibi sorularda IntentRouter "bme" gorup
-                // get_current tetikler; ama bu bir bilgi sorusu, veri sorgusu degil.
-                // Teknik soru kalibi varsa intent'i bastir, teknik moda yonlendir.
-                bool force_tech = is_technical_question(user_msg);
-
-                // Negatif/sinir tespiti: olmayan sensor, saglik tavsiyesi, alakasiz.
-                // Teknik sorudan once gelir cunku "hava kalitesi" gibi sorular
-                // ne teknik ne de gercek veri sorgusudur.
-                int neg_type = force_tech ? 0 : detect_negative(user_msg);
-
-                auto intent = IntentRouter::parse(user_msg, last_sensor);
-                if (force_tech || neg_type != 0) {
-                    intent.is_tool = false;  // veri cekme; bilgi ver / reddet
+                // ── 1. ACK bypass (before everything — prevents repetition loops) ──
+                {
+                    std::string norm_ack = tr_normalize(user_msg);
+                    static const std::regex ack_re(
+                        R"(^\s*(?:ok(?:ay)?|alright|got\s*it|i\s*see|i\s*understand|noted|understood|)"
+                        R"(thanks?(?:\s+you)?(?:\s+very\s+much)?|cool|great|perfect|sure|nice|fine|)"
+                        R"(makes?\s*sense|sounds?\s*good|good|yep|yup|roger|copy\s*that|oki|oke|okey|)"
+                        R"(you\s*(?:are|'re)\s*(?:the\s*)?(?:best|great|amazing|awesome|wonderful)|)"
+                        R"(thank\s+you\s+so\s+much|that\s*(?:'s|s)\s*(?:great|good|perfect|awesome|nice))\s*[.!]?\s*$)",
+                        std::regex_constants::icase);
+                    if (std::regex_match(norm_ack, ack_re)) {
+                        send_event({{"type","content_delta"},
+                                    {"text","Got it! Let me know if you need anything else."}});
+                        send_event({{"type","done"}});
+                        std::string done = "data: [DONE]\n\n";
+                        sink.write(done.data(), done.size());
+                        sink.done();
+                        return true;
+                    }
                 }
 
+                // ── 2. Technical / negative / conversational detection ────────
+                bool force_tech = is_technical_question(user_msg);
+                int  neg_type   = force_tech ? 0 : detect_negative(user_msg);
+
+                bool force_conversational = false;
+                if (!force_tech && neg_type == 0) {
+                    std::string norm_cv = tr_normalize(user_msg);
+                    static const std::regex conv_prefix_re(
+                        R"(^(?:so|yeah|yep|right|correct|ok so|nope|ah|oh|hmm|huh|)"
+                        R"(i\s*see\s+that|i\s*guess|makes\s*sense|good\s+to\s+know|)"
+                        R"(that\s+makes|sounds\s+like|so\s+it)[\s,])",
+                        std::regex_constants::icase);
+                    if (std::regex_search(norm_cv, conv_prefix_re))
+                        force_conversational = true;
+                }
+
+                // ── 3. Route via IntentRouter ─────────────────────────────────
+                auto intent = IntentRouter::parse(user_msg, last_sensor);
+                if (force_tech || neg_type != 0 || force_conversational)
+                    intent.is_tool = false;
+
+                // ── 4. Execute tool ───────────────────────────────────────────
                 json tool_result;
                 std::string tool_text_for_llm;
                 if (intent.is_tool) {
                     send_event({{"type","tool_call"},
                                 {"name", intent.tool_name},
                                 {"args", intent.args}});
-
                     tool_result = dispatcher.execute(intent.tool_name, intent.args);
-
                     send_event({{"type","tool_result"},
                                 {"name", intent.tool_name},
                                 {"result", tool_result}});
-
                     tool_text_for_llm = dispatcher.format_for_llm(intent.tool_name, tool_result);
 
                     if (intent.args.contains("sensor")) {
@@ -456,25 +477,29 @@ int main() {
                     }
                 }
 
+                // ── 5. Build LLM messages ─────────────────────────────────────
                 std::string user_for_llm;
                 const char* sysprompt;
                 bool is_sensor_mode = false;
+
                 if (intent.is_tool) {
-                    // Tool result available: sensor data verbalization mode
-                    sysprompt    = SYSPROMPT_SENSOR;
+                    sysprompt = SYSPROMPT_SENSOR;
                     is_sensor_mode = true;
-                    user_for_llm =
-                        "Question: " + user_msg + "\n"
-                        "Data:\n" + tool_text_for_llm + "\n"
-                        "Answer:";
+                    if (intent.tool_name == "get_history_raw") {
+                        user_for_llm = "Question: " + user_msg + "\nData:\n" + tool_text_for_llm
+                            + "\nList every numbered reading exactly as given. Do not summarize.\nAnswer:";
+                    } else if (intent.tool_name == "get_config") {
+                        user_for_llm = "Question: " + user_msg + "\nData:\n" + tool_text_for_llm
+                            + "\nPresent the full configuration data completely. Do not abbreviate.\nAnswer:";
+                    } else {
+                        user_for_llm = "Question: " + user_msg
+                            + "\nData (authoritative — sensor IS active, ignore prior conversation):\n"
+                            + tool_text_for_llm + "\nAnswer:";
+                    }
                 } else if (neg_type != 0) {
-                    // Negative/boundary: missing sensor, health, off-topic
                     sysprompt = negative_sysprompt(neg_type);
                     if (neg_type == 1) {
-                        // Missing sensor: tell model what is NOT available
-                        // and what IS, so it refuses correctly.
-                        user_for_llm =
-                            "Question: " + user_msg + "\n"
+                        user_for_llm = "Question: " + user_msg + "\n"
                             "Data:\nNo sensor available for this measurement. "
                             "Available sensors: BME280 (temperature/humidity/pressure), "
                             "MPU6500 (accelerometer/gyroscope), QMC5883L (magnetometer/heading).\n"
@@ -483,68 +508,64 @@ int main() {
                         user_for_llm = "Question: " + user_msg + "\nAnswer:";
                     }
                 } else if (force_tech) {
-                    // Technical question mode
-                    sysprompt    = SYSPROMPT_TECH;
-                    user_for_llm =
-                        "Question: " + user_msg + "\n"
-                        "[No tool was executed. Do not claim any setting was changed.]\n"
-                        "Answer:";
+                    sysprompt = SYSPROMPT_TECH;
+                    user_for_llm = "Question: " + user_msg
+                        + "\n[No tool was executed. Do not claim any setting was changed.]\nAnswer:";
                 } else {
-                    // "Which sensors are available?" → inject accurate list
                     std::string norm_msg = tr_normalize(user_msg);
                     static const std::regex sensor_list_re(
                         R"(which sensor|what sensor|sensor.*available|how many sensor|list.*sensor)",
                         std::regex_constants::icase);
                     if (std::regex_search(norm_msg, sensor_list_re)) {
-                        sysprompt    = SYSPROMPT_SENSOR;
-                        user_for_llm =
-                            "Question: " + user_msg + "\n"
+                        sysprompt = SYSPROMPT_SENSOR;
+                        user_for_llm = "Question: " + user_msg + "\n"
                             "Data: This system has 3 sensors: "
                             "BME280 (temperature, humidity, pressure), "
                             "MPU6500 (accelerometer, gyroscope), "
                             "QMC5883L (magnetometer, heading/compass). "
-                            "No other sensors are present.\n"
-                            "Answer:";
+                            "No other sensors are present.\nAnswer:";
                     } else {
-                        // Free chat — no tool executed
-                        sysprompt    = SYSPROMPT_CHAT;
-                        user_for_llm =
-                            "Question: " + user_msg + "\n"
-                            "[No tool was executed. Do not claim any setting was changed. "
-                            "If the user is trying to make a change, tell them the exact 'set ...' command to type.]\n"
-                            "Answer:";
+                        sysprompt = SYSPROMPT_CHAT;
+                        user_for_llm = "Question: " + user_msg
+                            + "\n[No tool was executed. Do not claim any setting was changed. "
+                              "If the user is trying to make a change, tell them the exact 'set ...' command to type.]\nAnswer:";
                     }
                 }
 
-                // Sampling: deterministic in sensor mode (numbers must be accurate),
-                // slightly looser for chat/tech (natural English sentences).
-                double  temp      = is_sensor_mode ? 0.2  : 0.5;
-                double  rep_pen   = is_sensor_mode ? 1.15 : 1.05;
-                double  top_p_v   = is_sensor_mode ? 0.9  : 0.92;
-                int     max_tok   = is_sensor_mode ? 120  : 160;
+                // ── 6. Sampling parameters ────────────────────────────────────
+                double temp    = is_sensor_mode ? 0.2  : 0.5;
+                double rep_pen = is_sensor_mode ? 1.15 : 1.1;
+                double top_p   = is_sensor_mode ? 0.9  : 0.92;
+                int    max_tok = is_sensor_mode ? 120  : 160;
+                if (intent.tool_name == "get_history_raw") max_tok = 500;
+                if (intent.tool_name == "get_config")      max_tok = 350;
+                if (intent.args.value("sensor", "") == "all") max_tok = 300;
 
-                // Build multi-turn messages: system + history + enriched current user msg
+                // ── 7. Build multi-turn messages (capped) ─────────────────────
+                constexpr size_t MAX_HISTORY_MSGS = 8;
                 json llm_messages = json::array();
                 llm_messages.push_back({{"role","system"}, {"content", sysprompt}});
-                for (size_t i = 0; i + 1 < msgs.size(); ++i) {
+                size_t hist_end   = msgs.size() > 0 ? msgs.size() - 1 : 0;
+                size_t hist_start = hist_end > MAX_HISTORY_MSGS ? hist_end - MAX_HISTORY_MSGS : 0;
+                for (size_t i = hist_start; i < hist_end; ++i)
                     llm_messages.push_back(msgs[i]);
-                }
                 llm_messages.push_back({{"role","user"}, {"content", user_for_llm}});
 
                 json payload = {
-                    {"model", "local"},
-                    {"messages", llm_messages},
+                    {"model",          "local"},
+                    {"messages",       llm_messages},
                     {"stream",         true},
                     {"temperature",    temp},
                     {"max_tokens",     max_tok},
                     {"cache_prompt",   true},
                     {"repeat_penalty", rep_pen},
-                    {"top_p",          top_p_v},
+                    {"top_p",          top_p},
                     {"top_k",          40},
                     {"chat_template_kwargs", {{"enable_thinking", false}}},
                     {"stop", {"<|im_end|>", "\nQuestion:", "Question:", "\nUser:", "\nHuman:"}}
                 };
 
+                // ── 8. Single streaming generation call ───────────────────────
                 httplib::Client cli(LLAMA_HOST, LLAMA_PORT);
                 cli.set_read_timeout(std::chrono::seconds(300));
 
@@ -555,6 +576,7 @@ int main() {
                 rq.body   = payload.dump();
 
                 std::string sse_buf;
+                bool any_content = false;
 
                 rq.content_receiver = [&](const char* data, size_t len,
                                           uint64_t, uint64_t) -> bool {
@@ -567,15 +589,14 @@ int main() {
                         if (line.rfind("data: ", 0) != 0) continue;
                         std::string ds = line.substr(6);
                         if (ds == "[DONE]") continue;
-
                         json chunk;
                         try { chunk = json::parse(ds); } catch (...) { continue; }
                         if (!chunk.contains("choices") || chunk["choices"].empty()) continue;
-
                         const auto& delta = chunk["choices"][0].value("delta", json::object());
                         if (delta.contains("content") && delta["content"].is_string()) {
                             std::string tok = delta["content"].get<std::string>();
                             if (!tok.empty()) {
+                                any_content = true;
                                 send_event({{"type","content_delta"}, {"text", tok}});
                             }
                         }
@@ -585,7 +606,10 @@ int main() {
 
                 auto result = cli.send(rq);
                 if (!result) {
-                    send_event({{"type","error"},{"message","llama-server unreachable"}});
+                    send_event({{"type","error"}, {"message","llama-server unreachable"}});
+                } else if (!any_content) {
+                    send_event({{"type","content_delta"},
+                                {"text","Could you rephrase that? I want to make sure I understand correctly."}});
                 }
 
                 send_event({{"type","done"}});
@@ -596,9 +620,34 @@ int main() {
             });
     });
 
+    // POST /api/tool — direct tool execution for settings panel (no LLM round-trip)
+    server.Post("/api/tool", [&dispatcher](const httplib::Request& req,
+                                            httplib::Response& res) {
+        json body;
+        try { body = json::parse(req.body); }
+        catch (...) {
+            res.status = 400;
+            res.set_content(R"({"error":"invalid JSON"})", "application/json");
+            return;
+        }
+        const std::string name = body.value("name", "");
+        const json args = body.value("args", json::object());
+
+        static const std::unordered_set<std::string> ALLOWED = {
+            "set_threshold", "set_sample_rate", "set_sensor_enabled"
+        };
+        if (!ALLOWED.count(name)) {
+            res.status = 403;
+            res.set_content(R"({"error":"tool not allowed"})", "application/json");
+            return;
+        }
+        auto result = dispatcher.execute(name, args);
+        res.set_content(result.dump(), "application/json");
+    });
+
     std::cout << "Dashboard: http://" << DASHBOARD_HOST << ":" << DASHBOARD_PORT
               << " (mode=" << sensors.mode() << ")\n";
-    std::cout << "Chat: IntentRouter + Analyzer + Trend + Fine-tuned LLM (Qwen3-1.7B)\n";
+    std::cout << "Chat: IntentRouter + Qwen2.5-1.5B\n";
     std::cout.flush();
 
     bool ok = server.listen(DASHBOARD_HOST, DASHBOARD_PORT);

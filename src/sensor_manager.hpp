@@ -27,7 +27,9 @@ public:
 
     nlohmann::json latest_all() const;
     nlohmann::json history(const std::string& sensor_name, int seconds) const;
+    nlohmann::json latest_n(const std::string& sensor_name, int count) const;
     bool set_sample_rate(const std::string& sensor_name, int hz);
+    bool set_enabled(const std::string& sensor_name, bool enabled);
 
     std::string mode() const { return mode_; }
 
@@ -51,6 +53,7 @@ private:
         int rate_hz;
         std::chrono::steady_clock::time_point next_sample;
         std::deque<SensorReading> history;
+        bool enabled = true;
     };
     std::unordered_map<std::string, SensorInfo> sensors_;
 
