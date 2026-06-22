@@ -50,7 +50,7 @@ nlohmann::json QMC5883L::read() {
     // Status: bit 0 = DRDY (data ready)
     uint8_t status = 0;
     if (!bus_.read_byte(addr_, 0x06, status)) return {};
-    if (!(status & 0x01)) return {};  // henuz hazir degil
+    if (!(status & 0x01)) return {};  // DRDY not yet set — no data available
 
     uint8_t buf[6];
     if (!bus_.read_bytes(addr_, 0x00, buf, 6)) return {};

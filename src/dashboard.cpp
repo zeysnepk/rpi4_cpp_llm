@@ -1,7 +1,7 @@
-#include "tool_dispatcher.hpp"
+#include "llm/tool_dispatcher.hpp"
 #include "sensor_manager.hpp"
-#include "intent_router.hpp"
-#include "analyzer.hpp"
+#include "llm/intent_router.hpp"
+#include "llm/analyzer.hpp"
 
 #include <httplib.h>
 #include <nlohmann/json.hpp>
@@ -43,11 +43,11 @@ static std::string detect_platform() {
 
 static std::string resolve_config_path() {
     const std::string platform = detect_platform();
-    const std::string specific = "./config." + platform + ".json";
+    const std::string specific = "./config/" + platform + ".json";
     std::ifstream f(specific);
     if (f) return specific;
-    std::cerr << "UYARI: " << specific << " yok, ./config.json deneniyor\n";
-    return "./config.json";
+    std::cerr << "WARNING: " << specific << " not found, trying ./config/config.json\n";
+    return "./config/config.json";
 }
 
 static json load_config(const std::string& path) {
@@ -68,7 +68,7 @@ static std::atomic<int> g_exit_code{0};
 static void on_signal(int) { if (g_server) g_server->stop(); }
 
 static std::mutex g_ctx_mtx;
-static std::string g_last_sensor;
+static std::string g_last_sensor; // tracks the last mentioned sensor for context-free follow-up queries
 
 // ============================================================
 // SYSTEM PROMPTLAR
@@ -117,8 +117,6 @@ static const char* SYSPROMPT_TECH =
     "Provide concise, accurate technical information about sensors, "
     "electronics, and embedded systems in English. "
     "Reply in 2-3 sentences maximum.";
-
-
 
 // ============================================================
 // TR normalize yardimcisi (lowercase + ascii)
@@ -231,9 +229,9 @@ int main() {
     SensorManager  sensors(cfg);
     sensors.start();
 
-    // === WARMUP: llama-server hazir olunca sys prompt'u cache'e yukle ===
+    // === WARMUP: cache system prompt once llama-server is ready ===
     std::thread([](){
-        std::cout << "Warmup: llama-server bekleniyor...\n";
+        std::cout << "Warmup: waiting for llama-server...\n";
         std::cout.flush();
 
         httplib::Client cli(LLAMA_HOST, LLAMA_PORT);
@@ -248,12 +246,12 @@ int main() {
         }
 
         if (!ready) {
-            std::cout << "Warmup atlandi: llama-server 90 sn icinde hazir olmadi\n";
+            std::cout << "Warmup skipped: llama-server not ready within 90s\n";
             std::cout.flush();
             return;
         }
 
-        std::cout << "Warmup basliyor (sys prompt cache'e yukleniyor)...\n";
+        std::cout << "Warmup: caching system prompt...\n";
         std::cout.flush();
 
         cli.set_read_timeout(std::chrono::seconds(240));
@@ -276,10 +274,9 @@ int main() {
             std::chrono::steady_clock::now() - t0).count();
 
         if (res && res->status == 200) {
-            std::cout << "Warmup tamamlandi (" << sec
-                      << " sn). Ilk gercek istek artik hizli.\n";
+            std::cout << "Warmup done (" << sec << "s). First request will be fast.\n";
         } else {
-            std::cout << "Warmup basarisiz: status="
+            std::cout << "Warmup failed: status="
                       << (res ? res->status : -1) << "\n";
         }
         std::cout.flush();
@@ -294,7 +291,7 @@ int main() {
     std::signal(SIGTERM, on_signal);
 
     if (!server.set_mount_point("/", WEBUI_DIR)) {
-        std::cerr << "HATA: webui klasoru bulunamadi (" << WEBUI_DIR << ")\n";
+        std::cerr << "ERROR: webui directory not found (" << WEBUI_DIR << ")\n";
         sensors.stop();
         return 1;
     }
@@ -335,7 +332,7 @@ int main() {
         json cfg = load_config(config_path);
         cfg["mode"] = new_mode;
         if (!save_config(config_path, cfg)) {
-            res.status = 500; res.set_content("Config yazilamadi", "text/plain"); return;
+            res.status = 500; res.set_content("config write failed", "text/plain"); return;
         }
 
         res.set_content(json{{"ok",true},{"mode",new_mode},{"restarting",true}}.dump(),
@@ -396,7 +393,7 @@ int main() {
             }
         }
         if (user_msg.empty()) {
-            res.status = 400; res.set_content("user mesaji yok", "text/plain"); return;
+            res.status = 400; res.set_content("no user message", "text/plain"); return;
         }
 
         std::string last_sensor;
@@ -652,7 +649,7 @@ int main() {
 
     bool ok = server.listen(DASHBOARD_HOST, DASHBOARD_PORT);
     if (!ok) {
-        std::cerr << "HATA: listen failed (port " << DASHBOARD_PORT << ")\n";
+        std::cerr << "ERROR: listen failed on port " << DASHBOARD_PORT << "\n";
         sensors.stop();
         return 1;
     }

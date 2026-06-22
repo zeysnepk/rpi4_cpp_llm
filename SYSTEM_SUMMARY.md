@@ -891,11 +891,3 @@ Sensior, kısıtlı kaynaklara sahip gömülü bir sistemde (RPi4) yerel LLM ent
 
 5. **Doğrudan araç API'si** — `POST /api/tool` ile LLM bypass'ı, ayarlar panelini deterministik ve anlık yapar.
 
-**En kritik bulgu:** Faithfulness %82.5, sistemin %17.5 oranında ya yanlış sayı ürettiğini ya da muğlak yanıt verdiğini göstermektedir. Bu oran, sensör izleme gibi sayı-kritik uygulamalar için sınırda kabul edilebilir; üretim ortamı için `user_for_llm` içindeki "authoritative data" vurgusunun ve SYSPROMPT_SENSOR kısıtlarının güçlendirilmesi önerilir.
-
-**Gelecek yönler:**
-- Qwen2.5-3B veya Phi-3-mini ile kalite/hız karşılaştırması
-- MQTT ile çok cihazlı mimari
-- Sensör drift otomatik kalibrasyonu
-- Mobil uyumlu PWA arayüzü
-- OpenAPI şeması ile dış entegrasyon

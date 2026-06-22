@@ -7,7 +7,7 @@ SimQMC5883L::SimQMC5883L()
       start_(std::chrono::steady_clock::now()) {}
 
 bool SimQMC5883L::init() {
-    std::cout << "    [SIM] qmc5883l hazir\n";
+    std::cout << "[SIM] qmc5883l ready\n";
     online_ = true;
     return true;
 }
@@ -17,9 +17,9 @@ nlohmann::json SimQMC5883L::read() {
     double t = duration_cast<duration<double>>(steady_clock::now() - start_).count();
     std::normal_distribution<double> noise(0.0, 0.01);
 
-    // Yavas donen pusula simulasyonu (15 derece/saniye)
+    // Slowly rotating compass simulation (15 degrees/second)
     double heading_rad = (t * 15.0) * M_PI / 180.0;
-    double scale = 0.35;  // ~0.35 Gauss buyukluk
+    double scale = 0.35;  // ~0.35 Gauss field magnitude
 
     double x = scale * std::cos(heading_rad) + noise(rng_);
     double y = scale * std::sin(heading_rad) + noise(rng_);

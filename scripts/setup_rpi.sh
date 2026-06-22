@@ -2,7 +2,7 @@
 # RPi4 ilk kurulum scripti
 # Kullanım: bash setup_rpi.sh
 # Bağımlılıkları kurar, projeyi derler, modeli hazır hale getirir.
-set -e
+set -e # hata verince script durur
 
 echo "=== Muhtas RPi4 Kurulum ==="
 
@@ -58,8 +58,8 @@ fi
 # 6. Özet
 echo ""
 echo "[5/5] Hazır! Başlatmak için:"
-echo "      Terminal 1: ./start_server.sh"
-echo "      Terminal 2: ./build/dashboard config.rpi.json"
+echo "      Terminal 1: ./scripts/start_server.sh"
+echo "      Terminal 2: ./build/dashboard"
 echo ""
 echo "Sensör testi: i2cdetect -y 1"
 echo "  0x76/0x77 = BME280, 0x68 = MPU6500, 0x0D = QMC5883L"

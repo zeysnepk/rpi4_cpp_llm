@@ -1,6 +1,7 @@
-#include "gpio_power.hpp"
+#include "hardware/gpio_power.hpp"
 #include <iostream>
 
+// preprocessor conditionals
 #if defined(__linux__) && __has_include(<gpiod.h>)
   #include <gpiod.h>
   #define HAS_LIBGPIOD 1
@@ -17,17 +18,17 @@ GPIOPower::GPIOPower(int bcm_pin, bool active_high,
 #if HAS_LIBGPIOD
     chip_ = gpiod_chip_open_by_name(chip_name_.c_str());
     if (!chip_) {
-        std::cerr << "GPIO: " << chip_name_ << " acilamadi\n";
+        std::cerr << "GPIO: cannot open " << chip_name_ << "\n";
         return;
     }
     line_ = gpiod_chip_get_line(chip_, pin_);
     if (!line_) {
-        std::cerr << "GPIO: BCM " << pin_ << " hatti alinamadi\n";
+        std::cerr << "GPIO: cannot get line for BCM " << pin_ << "\n";
         gpiod_chip_close(chip_);
         chip_ = nullptr;
     }
 #else
-    std::cerr << "GPIO: libgpiod yok (sim ortami), GPIO devre disi\n";
+    std::cerr << "GPIO: libgpiod unavailable (sim environment) — GPIO disabled\n";
     chip_ = nullptr;
     line_ = nullptr;
 #endif

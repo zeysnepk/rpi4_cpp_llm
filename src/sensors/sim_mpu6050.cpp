@@ -10,14 +10,14 @@ SimMPU6050::SimMPU6050()
 }
 
 void SimMPU6050::schedule_next_spike() {
-    // Her 5-15 saniyede bir hareket simule et
+    // Simulate a motion spike every 5–15 seconds
     std::uniform_int_distribution<int> d(5000, 15000);
     next_spike_ = std::chrono::steady_clock::now()
                 + std::chrono::milliseconds(d(rng_));
 }
 
 bool SimMPU6050::init() {
-    std::cout << "    [SIM] mpu6050 hazir (variant: SimMPU6500)\n";
+    std::cout << "[SIM] mpu6050 ready (variant: SimMPU6500)\n";
     online_ = true;
     return true;
 }
@@ -28,7 +28,7 @@ nlohmann::json SimMPU6050::read() {
     std::normal_distribution<double> noise(0.0, 0.02);
     std::uniform_real_distribution<double> spike(-0.5, 0.5);
 
-    // Spike zamani geldi mi
+    // Check if it is time to inject a spike
     bool is_spike = (now >= next_spike_);
     if (is_spike) schedule_next_spike();
 

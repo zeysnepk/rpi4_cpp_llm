@@ -1,7 +1,7 @@
 #pragma once
 #include "sensors/sensor.hpp"
 #include "sensors/i2c_bus.hpp"
-#include "gpio_power.hpp"
+#include "hardware/gpio_power.hpp"
 
 #include <nlohmann/json.hpp>
 #include <thread>
@@ -43,11 +43,12 @@ private:
     std::unique_ptr<I2CBus>    bus_;
     std::unique_ptr<GPIOPower> power_;
 
-    // Sensorler - polymorphic (real veya sim)
+    // Sensor instances — polymorphic (real hardware or simulation)
     std::unique_ptr<Sensor> bme_;
     std::unique_ptr<Sensor> mpu_;
     std::unique_ptr<Sensor> qmc_;
 
+    // Per-sensor state: hardware handle, sampling config, and ring-buffer history.
     struct SensorInfo {
         Sensor* sensor;
         int rate_hz;
@@ -61,5 +62,6 @@ private:
     std::atomic<bool> running_{false};
     std::thread worker_;
 
+    // Ring buffer capacity per sensor (6000 samples ~= 60s at 100 Hz)
     static constexpr size_t HISTORY_MAX = 6000;
 };

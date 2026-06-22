@@ -2,6 +2,10 @@
 #include <nlohmann/json.hpp>
 #include <string>
 
+/**
+ * Abstract base class for all sensors (real and simulated).
+ * Each sensor implements init(), read(), and optionally set_rate().
+ */
 class Sensor {
 public:
     virtual ~Sensor() = default;
@@ -9,8 +13,7 @@ public:
     virtual bool init() = 0;
     virtual nlohmann::json read() = 0;
 
-    // Hardware-specific rate degisiklikleri icin (QMC ODR gibi)
-    // Default: no-op (yazilim tarafinda zaten polling rate degisiyor)
+    // Hardware ODR control (e.g. QMC5883L). Default: no-op, rate is controlled by polling interval.
     virtual bool set_rate(int /*hz*/) { return true; }
 
     bool is_online() const { return online_; }

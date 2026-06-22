@@ -1,6 +1,6 @@
 #pragma once
+#include "llm/analyzer.hpp"
 #include "sensor_manager.hpp"
-#include "analyzer.hpp"
 #include <nlohmann/json.hpp>
 #include <string>
 
@@ -13,8 +13,7 @@ public:
     nlohmann::json get_tool_definitions() const;
     nlohmann::json execute(const std::string& name, const nlohmann::json& args);
 
-    // LLM'e gidecek tool sonucunu Turkce metin olarak formatla
-    // (yuvarlanmis, anlamli, kisa)
+    // Format a tool result as a concise English string for the LLM context window.
     std::string format_for_llm(const std::string& tool_name,
                                 const nlohmann::json& tool_result) const;
 

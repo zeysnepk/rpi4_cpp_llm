@@ -1,14 +1,14 @@
 #!/bin/bash
-cd "$(dirname "$0")"
+cd "$(dirname "$0")/.."
 
-# RPi'de yuksek priority, Mac'te normal
+# RPi: elevated priority; Mac: normal
 if [[ "$(uname -s)" == "Linux" ]]; then
     PREFIX="sudo nice -n -10"
 else
     PREFIX=""
 fi
 
-echo "Dashboard wrapper basladi (PID: $$)"
+echo "Dashboard wrapper started (PID: $$)"
 
 while true; do
     $PREFIX ./build/dashboard
@@ -16,15 +16,15 @@ while true; do
 
     if [ $code -eq 42 ]; then
         echo ""
-        echo "═══ Mode değişikliği — yeniden başlatılıyor ═══"
+        echo "═══ Mode switch — restarting ═══"
         sleep 1
         continue
     fi
 
     if [ $code -ne 0 ]; then
-        echo "Dashboard hata ile çıktı (kod $code), wrapper durdu"
+        echo "Dashboard exited with error (code $code)"
     else
-        echo "Dashboard normal kapandı"
+        echo "Dashboard stopped normally"
     fi
     exit $code
 done
