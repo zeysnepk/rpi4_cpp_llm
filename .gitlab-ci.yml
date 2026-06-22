@@ -45,13 +45,14 @@ smoke_test:
   stage: test
   needs: ["build"]
   script:
-    - ./build/dashboard config.mac.json &
-    - APP_PID=$!
-    - sleep 6
-    - kill -0 "$APP_PID" || { echo "ERROR: dashboard crashed in sim mode"; exit 1; }
-    - curl -fsS http://127.0.0.1:8081/ -o /dev/null || { kill "$APP_PID"; echo "ERROR: HTTP server not responding"; exit 1; }
-    - kill "$APP_PID"
-    - echo "Smoke test passed — sim startup + HTTP OK"
+    - |
+      ./build/dashboard &
+      APP_PID=$!
+      sleep 6
+      kill -0 "$APP_PID" || { echo "ERROR: dashboard crashed in sim mode"; exit 1; }
+      curl -fsS http://127.0.0.1:8081/ -o /dev/null || { kill "$APP_PID"; echo "ERROR: HTTP server not responding"; exit 1; }
+      kill "$APP_PID"
+      echo "Smoke test passed — sim startup + HTTP OK"
 
 # ============================================================
 # Static analysis — cppcheck
@@ -70,7 +71,7 @@ analyze:
         --error-exitcode=1
         --std=c++17
         -I third_party
-        -I src
-        -I src/sensors
+        -I inc
+        -I inc/sensors
         src/
   allow_failure: true
