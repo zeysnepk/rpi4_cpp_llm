@@ -1,0 +1,76 @@
+# ============================================================
+#  Sensior — GitLab CI/CD
+#  Dual-mode architecture allows testing without hardware (sim mode).
+#  Stages: build → test → analyze
+#
+#  NOTE (runner architecture):
+#    GitLab.com shared runners are x86_64. CMakeLists only enables
+#    Cortex-A72 flags on aarch64, so x86 builds cleanly.
+#    If you have your own ARM64 runner, change the image and add 'tags:'.
+# ============================================================
+
+stages:
+  - build
+  - test
+  - analyze
+
+default:
+  image: ubuntu:22.04
+  before_script:
+    - apt-get update -qq
+    - DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends
+        build-essential cmake libgpiod-dev curl ca-certificates
+
+# ============================================================
+# Build
+# ============================================================
+build:
+  stage: build
+  script:
+    - cmake -B build -DCMAKE_BUILD_TYPE=Release
+    - cmake --build build -- -j$(nproc)
+    - echo "Build OK — $(du -sh build/dashboard | cut -f1)"
+  artifacts:
+    paths:
+      - build/dashboard
+    expire_in: 1 hour
+
+# ============================================================
+# Smoke test — run in sim mode (no hardware/I2C needed)
+# Checks: process stays alive + HTTP server responds on :8081
+# LLM (llama-server :8080) is not running in CI — only the
+# sensor ring-buffer and HTTP layer are tested here.
+# ============================================================
+smoke_test:
+  stage: test
+  needs: ["build"]
+  script:
+    - ./build/dashboard config.mac.json &
+    - APP_PID=$!
+    - sleep 6
+    - kill -0 "$APP_PID" || { echo "ERROR: dashboard crashed in sim mode"; exit 1; }
+    - curl -fsS http://127.0.0.1:8081/ -o /dev/null || { kill "$APP_PID"; echo "ERROR: HTTP server not responding"; exit 1; }
+    - kill "$APP_PID"
+    - echo "Smoke test passed — sim startup + HTTP OK"
+
+# ============================================================
+# Static analysis — cppcheck
+# allow_failure: true so warnings don't block merges
+# ============================================================
+analyze:
+  stage: analyze
+  before_script:
+    - apt-get update -qq
+    - apt-get install -y --no-install-recommends cppcheck
+  script:
+    - cppcheck
+        --enable=warning,style,performance
+        --suppress=missingIncludeSystem
+        --suppress=unmatchedSuppression
+        --error-exitcode=1
+        --std=c++17
+        -I third_party
+        -I src
+        -I src/sensors
+        src/
+  allow_failure: true

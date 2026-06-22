@@ -4,17 +4,18 @@
 struct gpiod_chip;
 struct gpiod_line;
 
-// Tek bir GPIO pinini kalici olarak HIGH/LOW tutar (sensor power-enable icin)
+// Controls a single GPIO pin to power on/off the sensor rail.
 class GPIOPower {
 public:
+    // consructor
     GPIOPower(int bcm_pin,
               bool active_high = true,
               const std::string& chip_name = "gpiochip0",
               const std::string& consumer  = "rpi4_dashboard");
-    ~GPIOPower();
+    ~GPIOPower(); // destructor
 
-    bool enable();    // sensorlere guc ver
-    bool disable();   // sensorleri kapat
+    bool enable();    // assert the power-enable line
+    bool disable();   // deassert the power-enable line
     bool is_open() const { return chip_ != nullptr && line_ != nullptr; }
     int  pin() const { return pin_; }
 

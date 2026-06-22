@@ -2,9 +2,9 @@
 #include <string>
 #include <nlohmann/json.hpp>
 
-// Kullanici Turkce mesajini regex/keyword ile parse eder.
-// last_sensor_hint: mesajda sensor adi geciyorsa onu kullanir,
-// gecmiyorsa hint'i kullanir ("Simdi 20 Hz yap" gibi context-bagimli sorgular icin).
+// Parses a user message using regex/keyword matching to identify intent and tool call.
+// last_sensor_hint: if the message omits a sensor name, the hint provides context
+// (e.g. for follow-up queries like "set it to 20 Hz").
 class IntentRouter {
 public:
     struct Intent {

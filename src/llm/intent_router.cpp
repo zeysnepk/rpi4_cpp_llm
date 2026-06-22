@@ -1,4 +1,4 @@
-#include "intent_router.hpp"
+#include "llm/intent_router.hpp"
 #include <regex>
 #include <string>
 #include <cctype>
@@ -7,7 +7,7 @@
 using json = nlohmann::json;
 
 // ============================================================
-// Turkce karakter sadelestirme + lowercase
+// Turkish character normalization + lowercase
 // ============================================================
 static std::string normalize(const std::string& s) {
     std::string out;
@@ -174,7 +174,7 @@ IntentRouter::Intent IntentRouter::parse(const std::string& msg_tr,
             std::regex_constants::icase);
         bool is_threshold = std::regex_search(norm, thr_verb_re) || (want_max || want_min);
 
-        // Sayısal değer
+        // Numeric value
         static const std::regex val_re(R"((-?\d+(?:\.\d+)?))");
         std::smatch val_m;
 
@@ -215,12 +215,12 @@ IntentRouter::Intent IntentRouter::parse(const std::string& msg_tr,
 
             if (!metric_key.empty()) {
                 json args = {{"metric", metric_key}};
-                // Eğer sadece max ya da min keyword'ü varsa onu set et;
-                // ikisi de varsa veya hiçbiri yoksa hem min hem max'ı simetrik set et.
+                // If only max or only min keyword matched, set that side;
+                // if both or neither matched, apply symmetrically to min and max.
                 if (want_max && !want_min)       args["max"] = val;
                 else if (want_min && !want_max)  args["min"] = val;
                 else {
-                    // "sıcaklık eşiği 35 yap" → max=35 varsayılan
+                    // e.g. "temperature threshold 35" → default to max=35
                     args["max"] = val;
                 }
                 return {true, "set_threshold", args, msg_tr};
@@ -362,8 +362,8 @@ IntentRouter::Intent IntentRouter::parse(const std::string& msg_tr,
         return {true, "get_current", {{"sensor", sensor}}, msg_tr};
     }
 
-    // ----- 5. INTERPRET ONLY (sensor adi yok ama yorum istemi var) -----
-    // "anomali var mi yorumla", "durum nasil", "sorun var mi"
+    // ----- 5. INTERPRET ONLY (no sensor name, but an interpretation request) -----
+    // e.g. "is there an anomaly", "what's the status", "is anything wrong"
     if (has_interpret_keyword(norm)) {
         std::string s = last_sensor_hint.empty() ? "bme280" : last_sensor_hint;
         std::string metric = detect_metric(norm, s);

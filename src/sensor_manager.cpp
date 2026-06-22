@@ -21,15 +21,15 @@ SensorManager::SensorManager(const nlohmann::json& config)
     : config_(config),
       mode_(config.value("mode", "real"))
 {
-    std::cout << "Mode: " << mode_ << "\n";
+    std::cout << "SensorManager: mode=" << mode_ << "\n";
 
     if (mode_ == "sim") {
-        // SIM MODE - donanima dokunma, fake sensor'ler yarat
+        // SIM MODE — no hardware access, instantiate simulated sensors
         bme_ = std::make_unique<SimBME280>();
         mpu_ = std::make_unique<SimMPU6050>();
         qmc_ = std::make_unique<SimQMC5883L>();
     } else {
-        // REAL MODE - GPIO + I2C + gercek sensor surucu
+        // REAL MODE — GPIO + I2C + hardware sensor drivers
         auto sensors_cfg = config_.value("sensors", nlohmann::json::object());
 
         if (sensors_cfg.contains("power_pin")) {
@@ -42,16 +42,16 @@ SensorManager::SensorManager(const nlohmann::json& config)
             power_ = std::make_unique<GPIOPower>(bcm, active_high, chip);
             if (power_->is_open() && power_->enable()) {
                 std::cout << "GPIO: BCM " << bcm << " HIGH, "
-                          << settle_ms << " ms bekleniyor...\n";
+                          << settle_ms << " ms settle delay...\n";
                 std::this_thread::sleep_for(std::chrono::milliseconds(settle_ms));
             } else {
-                std::cerr << "UYARI: GPIO power enable basarisiz\n";
+                std::cerr << "WARNING: GPIO power enable failed\n";
             }
         }
 
         bus_ = std::make_unique<I2CBus>("/dev/i2c-1");
         if (!bus_->is_open()) {
-            std::cerr << "I2C bus acilamadi, sensorler devre disi\n";
+            std::cerr << "ERROR: Cannot open I2C bus — sensors unavailable\n";
             return;
         }
 
@@ -66,19 +66,19 @@ SensorManager::SensorManager(const nlohmann::json& config)
         bool enabled = cfg.value("enabled", false);
         int  rate    = cfg.value("sample_rate_hz", default_rate);
         if (!enabled && mode_ != "sim") {
-            std::cout << "  " << key << ": disabled in config\n";
+            std::cout << "  " << key << ": disabled (skipped)\n";
             return;
         }
         if (s->init()) {
-            std::cout << "  " << key << ": online @ " << rate << " Hz\n";
+            std::cout << "  " << key << ": OK @ " << rate << " Hz\n";
             sensors_[s->name()] = SensorInfo{ s, rate, clock_t_::now(), {}, enabled };
             s->set_rate(rate);
         } else {
-            std::cout << "  " << key << ": init basarisiz\n";
+            std::cout << "  " << key << ": init failed\n";
         }
     };
 
-    std::cout << "Sensorler:\n";
+    std::cout << "Initializing sensors:\n";
     setup(bme_.get(), "bme280",   1);
     setup(mpu_.get(), "mpu6050", 50);
     setup(qmc_.get(), "qmc5883l", 10);
@@ -97,6 +97,8 @@ void SensorManager::stop() {
     if (worker_.joinable()) worker_.join();
 }
 
+// Worker thread: polls each enabled sensor at its configured rate.
+// Readings are appended to a per-sensor ring buffer (max HISTORY_MAX entries).
 void SensorManager::run_loop() {
     while (running_) {
         auto now = clock_t_::now();

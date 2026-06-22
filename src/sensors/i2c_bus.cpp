@@ -15,11 +15,11 @@ I2CBus::I2CBus(const std::string& device) {
 #if HAS_I2C
     fd_ = open(device.c_str(), O_RDWR);
     if (fd_ < 0) {
-        std::cerr << "I2C: " << device << " acilamadi\n";
+        std::cerr << "I2C: cannot open " << device << "\n";
     }
 #else
     (void)device;
-    std::cerr << "I2C: Linux disinda (sim ortami), donanim I2C devre disi\n";
+    std::cerr << "I2C: non-Linux build (sim environment) — hardware I2C disabled\n";
     fd_ = -1;
 #endif
 }

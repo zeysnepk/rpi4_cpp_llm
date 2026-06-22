@@ -1,7 +1,7 @@
 # ============================================
 # C++ / CMake Build Artifacts
 # ============================================
-include/
+.claude/
 build/
 build-*/
 out/
@@ -115,3 +115,12 @@ compile_commands.json
 .gradio/
 flagged/
 gradio_cached_examples/
+
+# ============================================
+# Report / generated assets (not for submission)
+# ============================================
+report_assets/
+*.pdf
+generate_report.py
+untitled*.py
+*.ipynb

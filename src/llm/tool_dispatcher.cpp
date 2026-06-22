@@ -1,4 +1,4 @@
-#include "tool_dispatcher.hpp"
+#include "llm/tool_dispatcher.hpp"
 #include <fstream>
 #include <sstream>
 #include <numeric>
@@ -181,7 +181,7 @@ static const json* dig(const json& root, const std::string& path) {
     return cur;
 }
 
-// Linear regression slope (deger/saniye)
+// Linear regression slope (value/second)
 static double compute_slope(const std::vector<double>& ts_sec,
                              const std::vector<double>& vals) {
     if (ts_sec.size() < 2) return 0.0;
@@ -331,9 +331,9 @@ json ToolDispatcher::tool_set_sample_rate(const json& args) {
 }
 
 // ============================================================
-// SET THRESHOLD — bir metrigin anomali esik degerlerini degistirir
+// SET THRESHOLD — updates the anomaly threshold for a given metric.
 // args: {metric: "bme280.temperature_c", min: 10, max: 40}
-// min/max ikisi birden veya yalnizca biri gelebilir.
+// min and/or max may be provided independently.
 // ============================================================
 json ToolDispatcher::tool_set_threshold(const json& args) {
     std::string metric = args.value("metric", "");
@@ -368,7 +368,7 @@ json ToolDispatcher::tool_set_threshold(const json& args) {
                 {"warning","Changed in memory but could not save to config"},{"persisted",false}};
     }
 
-    // Analyzer'ı da güncelle (hot-reload: config yeniden okunacak)
+    // Persist change; Analyzer will pick it up on the next config read.
     return {{"ok",true},{"metric",metric},{"changed",changed},
             {"label", thr.value("label","")},{"persisted",true}};
 }
@@ -415,7 +415,7 @@ json ToolDispatcher::tool_get_config(const json& /*args*/) {
         }
     }
 
-    // Anomali esik degerleri
+    // Anomaly thresholds
     if (cfg.contains("thresholds")) {
         result["thresholds"] = cfg["thresholds"];
     }
