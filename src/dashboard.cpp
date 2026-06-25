@@ -533,13 +533,13 @@ int main() {
                 double temp    = is_sensor_mode ? 0.2  : 0.5;
                 double rep_pen = is_sensor_mode ? 1.15 : 1.1;
                 double top_p   = is_sensor_mode ? 0.9  : 0.92;
-                int    max_tok = is_sensor_mode ? 120  : 160;
-                if (intent.tool_name == "get_history_raw") max_tok = 500;
-                if (intent.tool_name == "get_config")      max_tok = 350;
-                if (intent.args.value("sensor", "") == "all") max_tok = 300;
+                int    max_tok = is_sensor_mode ? 60  : 80;
+                if (intent.tool_name == "get_history_raw") max_tok = 120;
+                if (intent.tool_name == "get_config")      max_tok = 120;
+                if (intent.args.value("sensor", "") == "all") max_tok = 100;
 
                 // ── 7. Build multi-turn messages (capped) ─────────────────────
-                constexpr size_t MAX_HISTORY_MSGS = 8;
+                constexpr size_t MAX_HISTORY_MSGS = 2;
                 json llm_messages = json::array();
                 llm_messages.push_back({{"role","system"}, {"content", sysprompt}});
                 size_t hist_end   = msgs.size() > 0 ? msgs.size() - 1 : 0;
