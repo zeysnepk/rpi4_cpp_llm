@@ -231,10 +231,10 @@ IntentRouter::Intent IntentRouter::parse(const std::string& msg_tr,
     // ----- 0c. SET SENSOR ENABLED ("disable bme280", "turn on mpu") -----
     {
         static const std::regex disable_re(
-            R"(\bdisable\b|\bturn\s*off\b|\bstop\b|\bdeactivate\b|\bswitch\s*off\b)",
+            R"(\bdisabled?\b|\bturn\s*off\b|\bstop\b|\bdeactivate\b|\bswitch\s*off\b)",
             std::regex_constants::icase);
         static const std::regex enable_re(
-            R"(\benable\b|\bturn\s*on\b|\bstart\b|\bactivate\b|\bswitch\s*on\b)",
+            R"(\benabled?\b|\bturn\s*on\b|\bstart\b|\bactivate\b|\bswitch\s*on\b)",
             std::regex_constants::icase);
         bool want_disable = std::regex_search(norm, disable_re);
         bool want_enable  = std::regex_search(norm, enable_re);
