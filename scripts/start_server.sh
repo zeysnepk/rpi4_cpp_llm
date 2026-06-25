@@ -57,8 +57,6 @@ echo "════════════════════════�
     -b 128 \
     -np 1 \
     --mlock \
-    --cache-type-k q8_0 \
-    --cache-type-v q8_0 \
     -ngl 0 \
     --jinja \
     --chat-template-kwargs '{"enable_thinking": false}'
