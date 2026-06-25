@@ -49,17 +49,16 @@ echo " Model    : $MODEL_FILE"
 echo " Threads  : $THREADS"
 echo "═══════════════════════════════════════════════"
 
-# Qwen3: --jinja (chat template render) + thinking mode disabled
 "$LLAMA_BIN" \
-    -m "$MODEL" \  # model file yukler
-    --host 127.0.0.1 --port 8080 \  # localhost
-    -t $THREADS \ 
-    -c 4096 \  # context size (giris + cikis toplam token sayisi)
-    -b 128 \  # batch size (bir seferde islenecek token sayisi)
-    -np 1 \  # paralel oturum sayisi (1 kullanici)
-    --mlock \  # bellekte kilitle, ram (RPi'de swap'i engellemek icin)
-    --cache-type-k q8_0 \ # cache 8 bitte 
-    --cache-type-v q8_0 \ 
-    -ngl 0 \  # tamamen cpu
-    --jinja \ # # chat template render
+    -m "$MODEL" \
+    --host 127.0.0.1 --port 8080 \
+    -t $THREADS \
+    -c 4096 \
+    -b 128 \
+    -np 1 \
+    --mlock \
+    --cache-type-k q8_0 \
+    --cache-type-v q8_0 \
+    -ngl 0 \
+    --jinja \
     --chat-template-kwargs '{"enable_thinking": false}'
