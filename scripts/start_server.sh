@@ -17,7 +17,7 @@ if [[ "$UNAME" == "Darwin" ]]; then
 elif [[ "$UNAME" == "Linux" ]]; then
     LLAMA_BIN="$HOME/llama.cpp/build/bin/llama-server"
     MODEL_DIR="$HOME/models"
-    THREADS=4
+    THREADS=3
     PLATFORM="RPi/Linux"
 else
     echo "Unsupported platform: $UNAME"
