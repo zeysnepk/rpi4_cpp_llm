@@ -253,10 +253,11 @@ function timeLabel() {
 function gyroMag(g) { return Math.sqrt(g.x*g.x + g.y*g.y + g.z*g.z); }
 
 // ============================================================
-// SENSOR STREAM
+// SENSOR POLLING  (1s poll of /api/sensors)
+// A long-lived SSE stream stalls while a slow chat response streams (mobile
+// browsers throttle EventSource during an active fetch), which froze the
+// charts. Short independent polls get through even mid-chat.
 // ============================================================
-let sse = null;
-
 function updateCards(all) {
     document.querySelectorAll('.sensor-card').forEach(card => {
         const name = card.dataset.name;
@@ -295,22 +296,19 @@ function scheduleChartUpdate() {
     }
 }
 
-function startSensorStream() {
-    if (sse) sse.close();
-    sse = new EventSource('/api/sensors/stream');
+async function pollSensors() {
+    try {
+        const r = await fetch('/api/sensors');
+        if (!r.ok) return;
+        latestSensors = await r.json();
+        updateCards(latestSensors);
+        scheduleChartUpdate();
+    } catch (e) { /* transient network error; next tick retries */ }
+}
 
-    sse.onmessage = (event) => {
-        try {
-            latestSensors = JSON.parse(event.data);
-            updateCards(latestSensors);
-            scheduleChartUpdate();
-        } catch (e) { /* parse errors */ }
-    };
-
-    sse.onerror = () => {
-        setStatus('err', 'sensor connection lost, retrying...');
-        setTimeout(() => checkHealth(), 1500);
-    };
+function startSensorPolling() {
+    pollSensors();                    // first read immediately
+    setInterval(pollSensors, 1000);   // then every 1s (independent short requests)
 }
 
 // ============================================================
@@ -704,11 +702,10 @@ window.addEventListener('DOMContentLoaded', () => {
     initCharts();
     checkHealth();
     setInterval(checkHealth, 10000);
-    startSensorStream();
+    startSensorPolling();
     loadModeStatus();
     loadTranslatorStatus();
     setInterval(loadTranslatorStatus, 30000);
-    setInterval(() => { if (latestSensors) scheduleChartUpdate(); }, 1000);
     initExampleChips();
     initSettingsPanel();
     loadSettings();
