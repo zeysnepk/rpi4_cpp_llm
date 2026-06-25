@@ -539,7 +539,10 @@ int main() {
                 if (intent.args.value("sensor", "") == "all") max_tok = 100;
 
                 // ── 7. Build multi-turn messages (capped) ─────────────────────
-                constexpr size_t MAX_HISTORY_MSGS = 2;
+                // Tool/sensor answers are self-contained. Dropping history for them
+                // keeps the cacheable system-prompt prefix stable, so llama-server
+                // reprocesses far fewer tokens each turn -> much less prefill on RPi.
+                const size_t MAX_HISTORY_MSGS = is_sensor_mode ? 0 : 2;
                 json llm_messages = json::array();
                 llm_messages.push_back({{"role","system"}, {"content", sysprompt}});
                 size_t hist_end   = msgs.size() > 0 ? msgs.size() - 1 : 0;
