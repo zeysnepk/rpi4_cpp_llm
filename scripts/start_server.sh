@@ -27,7 +27,7 @@ fi
 # ============================================================
 # MODEL
 # ============================================================
-MODEL_FILE="qwen2.5-1.5b-instruct-q4_k_m.gguf"   # stock model — full English pipeline
+MODEL_FILE="Qwen2.5-0.5B-Instruct-Q4_K_M.gguf"
 
 MODEL="$MODEL_DIR/$MODEL_FILE"
 
