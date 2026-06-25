@@ -1,9 +1,10 @@
 #!/bin/bash
 cd "$(dirname "$0")/.."
 
-# RPi: elevated priority; Mac: normal
+# RPi: pin dashboard to core 0 so it never steals llama-server's cores (1-3).
+# (Previously ran at nice -10, which PREEMPTED llama-server and crippled token gen.)
 if [[ "$(uname -s)" == "Linux" ]]; then
-    PREFIX="sudo nice -n -10"
+    PREFIX="sudo taskset -c 0"
 else
     PREFIX=""
 fi

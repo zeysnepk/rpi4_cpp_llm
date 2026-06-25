@@ -13,11 +13,14 @@ if [[ "$UNAME" == "Darwin" ]]; then
     LLAMA_BIN="$PROJECT_DIR/models/llama.cpp/build/bin/llama-server"
     MODEL_DIR="$PROJECT_DIR/models"
     THREADS=4
+    CPU_AFFINITY=""
     PLATFORM="Mac"
 elif [[ "$UNAME" == "Linux" ]]; then
     LLAMA_BIN="$HOME/llama.cpp/build/bin/llama-server"
     MODEL_DIR="$HOME/models"
     THREADS=3
+    # Pin to cores 1-3; core 0 is reserved for the dashboard (see start_dashboard.sh).
+    CPU_AFFINITY="taskset -c 1,2,3"
     PLATFORM="RPi/Linux"
 else
     echo "Unsupported platform: $UNAME"
@@ -49,7 +52,7 @@ echo " Model    : $MODEL_FILE"
 echo " Threads  : $THREADS"
 echo "═══════════════════════════════════════════════"
 
-"$LLAMA_BIN" \
+$CPU_AFFINITY "$LLAMA_BIN" \
     -m "$MODEL" \
     --host 127.0.0.1 --port 8080 \
     -t $THREADS \
