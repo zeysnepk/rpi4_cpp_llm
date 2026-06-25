@@ -55,7 +55,7 @@ function getConfig(name) {
         data: { labels: [], datasets: [
             ds('Temperature (°C)', '#f97316', 'y'),
             ds('Humidity (%)',     '#06b6d4', 'y1'),
-            ds('Pressure (hPa)',   '#a78bfa', 'yP', true)
+            ds('Pressure (hPa)',   '#a78bfa', 'yP', false)
         ]},
         options: commonOptions('°C', true, '%', { yP: { display: false, position: 'right' } })
     };
@@ -65,7 +65,7 @@ function getConfig(name) {
             ds('aX (g)', '#ef4444', 'y'),
             ds('aY (g)', '#22c55e', 'y'),
             ds('aZ (g)', '#3b82f6', 'y'),
-            ds('|gyro| (°/s)', '#f59e0b', 'y1')
+            ds('Gyro (°/s)', '#f59e0b', 'y1')
         ]},
         options: commonOptions('g', true, '°/s')
     };
