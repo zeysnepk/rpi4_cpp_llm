@@ -53,9 +53,9 @@ function getConfig(name) {
     if (name === 'bme280') return {
         type: 'line',
         data: { labels: [], datasets: [
-            ds('Sıcaklık (°C)', '#f97316', 'y'),
-            ds('Nem (%)',        '#06b6d4', 'y1'),
-            ds('Basınç (hPa)',   '#a78bfa', 'yP', true)
+            ds('Temperature (°C)', '#f97316', 'y'),
+            ds('Humidity (%)',     '#06b6d4', 'y1'),
+            ds('Pressure (hPa)',   '#a78bfa', 'yP', true)
         ]},
         options: commonOptions('°C', true, '%', { yP: { display: false, position: 'right' } })
     };

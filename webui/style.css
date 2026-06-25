@@ -119,6 +119,7 @@ header.container > header,
 }
 .sensor-card .readings .k { color: var(--text); }
 .sensor-card .readings .v { color: var(--ok); }
+.sensor-card .readings .thr-inline { color: var(--text-dim); font-size: 11px; }
 
 /* CHART KARTLARI */
 .chart-card {
@@ -573,7 +574,29 @@ button:disabled { background: var(--panel-2); color: var(--text-dim); cursor: no
 
 /* ============================================================ */
 
-/* MOBIL (dar ekran: stack) */
+.info-note {
+    margin: 8px 0;
+    padding: 8px 10px;
+    font-size: 12px;
+    line-height: 1.6;
+    color: var(--text-dim);
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+}
+.info-note strong { color: var(--text); }
+.info-note code {
+    color: var(--text);
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 1px 5px;
+    font-size: 11px;
+}
+
+/* ============================================================ */
+
+/* MOBILE (narrow screen: stack) */
 @media (max-width: 900px) {
     .main-grid {
         grid-template-columns: 1fr;

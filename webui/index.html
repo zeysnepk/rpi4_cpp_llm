@@ -1,38 +1,35 @@
 <!DOCTYPE html>
-<html lang="tr">
+<html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>RPi4 Sensör Asistanı</title>
+    <title>RPi4 Sensor Assistant</title>
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
     <div class="container">
         <header>
             <div class="title">
-                <span class="logo">🤖</span>
-                <h1>RPi4 Sensör Asistanı</h1>
+                <h1>RPi4 Sensor Assistant</h1>
             </div>
             <div class="header-right">
-                <button class="mode-toggle" id="modeToggle" title="Mode değiştir">
-                    <span class="mode-icon">⚡</span>
-                    <span class="mode-text">—</span>
+                <button class="mode-toggle" id="modeToggle" title="Switch mode">
+                    <span class="mode-text">-</span>
                 </button>
-                <div class="translator-badge" id="translatorBadge" title="Translator durumu">
-                    <span class="tr-icon">🌐</span>
-                    <span class="tr-text">—</span>
+                <div class="translator-badge" id="translatorBadge" title="Translator status">
+                    <span class="tr-text">-</span>
                 </div>
                 <div class="status" id="status">
                     <span class="dot"></span>
-                    <span class="label">bağlanıyor...</span>
+                    <span class="label">connecting...</span>
                 </div>
             </div>
         </header>
 
         <div class="main-grid">
-            <!-- SOL KOLON: Sensörler + Grafikler -->
+            <!-- LEFT COLUMN: Sensors + Charts -->
             <section class="left-column">
-                <!-- Sensor kart satiri -->
+                <!-- Sensor card row -->
                 <div id="sensors" class="sensors">
                     <div class="sensor-card" data-name="bme280">
                         <header>
@@ -40,7 +37,7 @@
                             <h2>BME280</h2>
                             <span class="rate"></span>
                         </header>
-                        <div class="readings">Bekleniyor...</div>
+                        <div class="readings">Waiting...</div>
                     </div>
                     <div class="sensor-card" data-name="mpu6050">
                         <header>
@@ -48,7 +45,7 @@
                             <h2>MPU6500</h2>
                             <span class="rate"></span>
                         </header>
-                        <div class="readings">Bekleniyor...</div>
+                        <div class="readings">Waiting...</div>
                     </div>
                     <div class="sensor-card" data-name="qmc5883l">
                         <header>
@@ -56,31 +53,31 @@
                             <h2>QMC5883L</h2>
                             <span class="rate"></span>
                         </header>
-                        <div class="readings">Bekleniyor...</div>
+                        <div class="readings">Waiting...</div>
                     </div>
                 </div>
 
-                <!-- Sensor grafikleri (her biri ayri satir) -->
+                <!-- Sensor charts (each on its own row) -->
                 <div class="chart-card">
                     <header>
-                        <h3>BME280 — Çevre Verisi</h3>
-                        <span class="hint">son 60 saniye</span>
+                        <h3>BME280 - Environment Data</h3>
+                        <span class="hint">last 60 seconds</span>
                     </header>
                     <div class="chart-wrap"><canvas id="chart-bme280"></canvas></div>
                 </div>
 
                 <div class="chart-card">
                     <header>
-                        <h3>MPU6500 — İvme (g) & Açısal Hız (°/s)</h3>
-                        <span class="hint">son 60 saniye</span>
+                        <h3>MPU6500 - Acceleration (g) &amp; Angular Rate (deg/s)</h3>
+                        <span class="hint">last 60 seconds</span>
                     </header>
                     <div class="chart-wrap"><canvas id="chart-mpu6050"></canvas></div>
                 </div>
 
                 <div class="chart-card">
                     <header>
-                        <h3>QMC5883L — Manyetik Alan (Gauss) & Heading</h3>
-                        <span class="hint">son 60 saniye</span>
+                        <h3>QMC5883L - Magnetic Field (Gauss) &amp; Heading</h3>
+                        <span class="hint">last 60 seconds</span>
                     </header>
                     <div class="chart-wrap"><canvas id="chart-qmc5883l"></canvas></div>
                 </div>
@@ -88,8 +85,8 @@
                 <!-- Settings Panel -->
                 <div class="settings-card" id="settingsCard">
                     <div class="settings-hdr" id="settingsHdr">
-                        <span class="settings-title-text">⚙ Settings</span>
-                        <span class="settings-chevron" id="settingsChevron">▴</span>
+                        <span class="settings-title-text">Settings</span>
+                        <span class="settings-chevron" id="settingsChevron">[-]</span>
                     </div>
                     <div class="settings-body" id="settingsBody">
                         <div class="settings-tabs" id="settingsTabs"></div>
@@ -100,13 +97,19 @@
                 </div>
             </section>
 
-            <!-- SAG KOLON: Chat -->
+            <!-- RIGHT COLUMN: Chat -->
             <section class="right-column">
                 <main id="chat" class="chat">
                     <div class="message assistant">
                         <div class="bubble">Hello! The sensors are active, so we can chat. You can ask questions about the data.</div>
                     </div>
                 </main>
+
+                <div class="info-note">
+                    <strong>Tip:</strong> To change a setting, start your message with <code>set</code>.
+                    For example: <code>set bme temperature max 30</code>,
+                    <code>set mpu sample rate 10 hz</code>, <code>set bme disabled</code>.
+                </div>
 
                 <div class="example-chips" id="exampleChips"></div>
 

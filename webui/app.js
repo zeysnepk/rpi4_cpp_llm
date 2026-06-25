@@ -13,6 +13,7 @@ const statusEl = document.getElementById('status');
 
 const history = [];
 let latestSensors = null;
+let thresholds = {};   // metric -> {min,max}; shown next to each sensor reading
 
 let scrollPending = false;
 function scheduleScroll() {
@@ -45,10 +46,10 @@ function addMessage(role, content = '') {
 async function checkHealth() {
     try {
         const r = await fetch('/api/health');
-        if (r.ok) setStatus('ok', 'bağlı');
-        else setStatus('err', 'sunucu hata');
+        if (r.ok) setStatus('ok', 'connected');
+        else setStatus('err', 'server error');
     } catch {
-        setStatus('err', 'bağlantı yok');
+        setStatus('err', 'no connection');
     }
 }
 
@@ -111,7 +112,7 @@ async function sendMessage(text) {
                     }
                     const item = document.createElement('div');
                     item.className = 'tool-item pending';
-                    item.innerHTML = `🔧 <code>${ev.name}</code>(${JSON.stringify(ev.args)})`;
+                    item.innerHTML = `<code>${ev.name}</code>(${JSON.stringify(ev.args)})`;
                     toolBlock.appendChild(item);
 
                     if (!isStreaming) {
@@ -136,14 +137,14 @@ async function sendMessage(text) {
                 else if (ev.type === 'done') {
                     bubble.classList.remove('thinking');
                     if (!isStreaming && !finalText) {
-                        bubble.textContent = '(boş yanıt)';
+                        bubble.textContent = '(empty response)';
                     }
                 }
                 else if (ev.type === 'error') {
                     bubble.classList.remove('thinking');
                     bubble.parentElement.classList.remove('assistant');
                     bubble.parentElement.classList.add('error');
-                    bubble.textContent = `Hata: ${ev.message}`;
+                    bubble.textContent = `Error: ${ev.message}`;
                 }
             }
         }
@@ -153,7 +154,7 @@ async function sendMessage(text) {
         bubble.classList.remove('thinking');
         bubble.parentElement.classList.remove('assistant');
         bubble.parentElement.classList.add('error');
-        bubble.textContent = `Hata: ${err.message}`;
+        bubble.textContent = `Error: ${err.message}`;
     }
 }
 
@@ -187,13 +188,19 @@ function fmt(n, digits=2) {
     return n.toFixed(digits);
 }
 
-function renderReadings(card, data) {
+function renderReadings(card, name, data) {
     const lines = [];
     const walk = (obj, prefix='') => {
         for (const k in obj) {
             const v = obj[k];
-            if (v !== null && typeof v === 'object') walk(v, prefix + k + '.');
-            else lines.push(`<span class="k">${prefix}${k}:</span> <span class="v">${fmt(v)}</span>`);
+            if (v !== null && typeof v === 'object') { walk(v, prefix + k + '.'); continue; }
+            const path = prefix + k;
+            const thr = thresholds[name + '.' + path];
+            let range = '';
+            if (thr && (thr.min !== undefined || thr.max !== undefined)) {
+                range = ` <span class="thr-inline">(min ${fmt(thr.min)} / max ${fmt(thr.max)})</span>`;
+            }
+            lines.push(`<span class="k">${path}:</span> <span class="v">${fmt(v)}</span>${range}`);
         }
     };
     walk(data);
@@ -256,13 +263,13 @@ function updateCards(all) {
         const info = all[name];
         if (!info) {
             card.classList.remove('online'); card.classList.add('offline');
-            card.querySelector('.readings').textContent = 'Yapılandırılmamış';
+            card.querySelector('.readings').textContent = 'Not configured';
             return;
         }
         card.querySelector('.rate').textContent = info.rate_hz ? `${info.rate_hz} Hz` : '';
         if (info.online && info.data) {
             card.classList.add('online'); card.classList.remove('offline');
-            renderReadings(card, info.data);
+            renderReadings(card, name, info.data);
         } else {
             card.classList.remove('online'); card.classList.add('offline');
             card.querySelector('.readings').textContent = 'Offline';
@@ -301,7 +308,7 @@ function startSensorStream() {
     };
 
     sse.onerror = () => {
-        setStatus('err', 'sensör bağlantısı koptu, deniyor...');
+        setStatus('err', 'sensor connection lost, retrying...');
         setTimeout(() => checkHealth(), 1500);
     };
 }
@@ -318,14 +325,12 @@ async function loadModeStatus() {
         btn.classList.remove('real', 'sim');
         btn.classList.add(info.current_mode);
         btn.querySelector('.mode-text').textContent = info.current_mode;
-        btn.querySelector('.mode-icon').textContent =
-            info.current_mode === 'real' ? '📡' : '🎲';
-        btn.title = `Platform: ${info.platform} | Mode: ${info.current_mode}\nTıkla → ${info.current_mode === 'real' ? 'sim' : 'real'}'e geç`;
+        btn.title = `Platform: ${info.platform} | Mode: ${info.current_mode}\nClick to switch to ${info.current_mode === 'real' ? 'sim' : 'real'}`;
     } catch { /* ignore */ }
 }
 
 async function waitForServerBack() {
-    setStatus('err', 'yeniden başlatılıyor...');
+    setStatus('err', 'restarting...');
     for (let i = 0; i < 60; i++) {
         await new Promise(r => setTimeout(r, 1000));
         try {
@@ -333,7 +338,7 @@ async function waitForServerBack() {
             if (r.ok) { window.location.reload(); return; }
         } catch { /* still down */ }
     }
-    setStatus('err', 'sunucu dönmedi');
+    setStatus('err', 'server did not come back');
 }
 
 async function toggleMode() {
@@ -341,7 +346,7 @@ async function toggleMode() {
     const current = btn.querySelector('.mode-text').textContent;
     const next = current === 'real' ? 'sim' : 'real';
 
-    if (!confirm(`Mode: ${current.toUpperCase()} → ${next.toUpperCase()}\n\nDashboard yeniden başlatılacak (~3 sn). Devam edilsin mi?`)) {
+    if (!confirm(`Mode: ${current.toUpperCase()} -> ${next.toUpperCase()}\n\nThe dashboard will restart (~3 s). Continue?`)) {
         return;
     }
 
@@ -358,7 +363,7 @@ async function toggleMode() {
         waitForServerBack();
     } catch (err) {
         btn.disabled = false;
-        alert(`Hata: ${err.message}`);
+        alert(`Error: ${err.message}`);
         loadModeStatus();
     }
 }
@@ -379,16 +384,16 @@ async function loadTranslatorStatus() {
         badge.classList.remove('on', 'off', 'err');
         if (!info.enabled) {
             badge.classList.add('off');
-            text.textContent = 'TR direkt';
-            badge.title = 'Translator kapalı — LLM TR direkt cevap veriyor';
+            text.textContent = 'Translator off';
+            badge.title = 'Translator disabled - LLM answers directly';
         } else if (info.available) {
             badge.classList.add('on');
-            text.textContent = 'TR↔EN';
-            badge.title = 'LibreTranslate çalışıyor';
+            text.textContent = 'Translator on';
+            badge.title = 'LibreTranslate running';
         } else {
             badge.classList.add('err');
-            text.textContent = 'TR↔EN ✗';
-            badge.title = 'LibreTranslate erişilemez';
+            text.textContent = 'Translator error';
+            badge.title = 'LibreTranslate unreachable';
         }
     } catch { /* ignore */ }
 }
@@ -397,14 +402,14 @@ async function loadTranslatorStatus() {
 // EXAMPLE CHIPS
 // ============================================================
 const EXAMPLE_PROMPTS = [
-    { icon: '🌡', label: 'Temperature',    text: 'What is the current temperature?' },
-    { icon: '💧', label: 'Humidity',       text: 'What is the current humidity?' },
-    { icon: '📊', label: '30s trend',      text: 'Show me the last 30 seconds trend for bme280' },
-    { icon: '🔢', label: 'Last 10 reads',  text: 'Show last 10 readings of bme280' },
-    { icon: '⚠️', label: 'Anomalies',      text: 'Are there any anomalies right now?' },
-    { icon: '📡', label: 'All sensors',    text: 'Show all sensor readings' },
-    { icon: '🧭', label: 'Heading',        text: 'What is the compass heading?' },
-    { icon: '⚙',  label: 'What can I set', text: 'What can I change?' },
+    { label: 'Temperature',    text: 'What is the current temperature?' },
+    { label: 'Humidity',       text: 'What is the current humidity?' },
+    { label: '30s trend',      text: 'Show me the last 30 seconds trend for bme280' },
+    { label: 'Last 10 reads',  text: 'Show last 10 readings of bme280' },
+    { label: 'Anomalies',      text: 'Are there any anomalies right now?' },
+    { label: 'All sensors',    text: 'Show all sensor readings' },
+    { label: 'Heading',        text: 'What is the compass heading?' },
+    { label: 'What can I set', text: 'What can I change?' },
 ];
 
 function initExampleChips() {
@@ -414,7 +419,7 @@ function initExampleChips() {
         const btn = document.createElement('button');
         btn.type = 'button';
         btn.className = 'chip';
-        btn.innerHTML = `<span class="chip-icon">${p.icon}</span>${p.label}`;
+        btn.textContent = p.label;
         btn.title = p.text;
         btn.addEventListener('click', () => {
             input.value = p.text;
@@ -463,7 +468,7 @@ function flashBtn(btn, ok) {
     const cls = ok ? 'ok-flash' : 'err-flash';
     btn.classList.add(cls);
     const prev = btn.textContent;
-    btn.textContent = ok ? '✓' : '✗';
+    btn.textContent = ok ? 'OK' : 'X';
     setTimeout(() => {
         btn.classList.remove(cls);
         btn.textContent = prev;
@@ -597,7 +602,7 @@ function buildSensorPane(sensorKey, sensorCfg, allThresholds, maxHz) {
 
             const sep = document.createElement('span');
             sep.className = 'thr-sep';
-            sep.textContent = '—';
+            sep.textContent = 'to';
 
             const maxInput = document.createElement('input');
             maxInput.type = 'number';
@@ -616,6 +621,7 @@ function buildSensorPane(sensorKey, sensorCfg, allThresholds, maxHz) {
                 if (maxInput.value !== '') args.max = parseFloat(maxInput.value);
                 try {
                     await callTool('set_threshold', args);
+                    thresholds[metric] = Object.assign({}, thresholds[metric] || {}, args);
                     flashBtn(applyBtn, true);
                 } catch { flashBtn(applyBtn, false); }
                 finally { applyBtn.disabled = false; }
@@ -642,6 +648,7 @@ async function loadSettings() {
         const r = await fetch('/api/config');
         if (!r.ok) return;
         const cfg = await r.json();
+        thresholds = cfg.thresholds || {};   // keep sensor-card ranges in sync
 
         const tabsEl  = document.getElementById('settingsTabs');
         const panesEl = document.getElementById('settingsPanes');
@@ -689,7 +696,7 @@ function initSettingsPanel() {
     hdr.addEventListener('click', () => {
         const collapsed = body.style.display === 'none';
         body.style.display = collapsed ? '' : 'none';
-        chev.classList.toggle('closed', !collapsed);
+        chev.textContent = collapsed ? '[-]' : '[+]';
     });
 }
 
