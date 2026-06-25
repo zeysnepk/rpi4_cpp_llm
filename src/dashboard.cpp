@@ -371,7 +371,10 @@ int main() {
                     auto data = sensors.latest_all();
                     std::string msg = "data: " + data.dump() + "\n\n";
                     if (!sink.write(msg.data(), msg.size())) break;
-                    std::this_thread::sleep_for(std::chrono::milliseconds(200));
+                    // 1 Hz: the UI chart only redraws once per second anyway, so
+                    // pushing faster just burns core-0 memory bandwidth that the
+                    // LLM needs. (Was 200 ms.)
+                    std::this_thread::sleep_for(std::chrono::milliseconds(1000));
                 }
                 sink.done();
                 return true;
