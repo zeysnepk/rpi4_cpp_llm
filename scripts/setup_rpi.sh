@@ -34,7 +34,7 @@ if [ ! -f "$LLAMA_DIR/build/bin/llama-server" ]; then
     fi
     cmake -B "$LLAMA_DIR/build" "$LLAMA_DIR" \
         -DCMAKE_BUILD_TYPE=Release \
-        -DGGML_NATIVE=OFF \
+        -DGGML_NATIVE=ON \
         -DLLAMA_CURL=OFF
     cmake --build "$LLAMA_DIR/build" --config Release -j4 --target llama-server
     echo "      llama-server OK"
