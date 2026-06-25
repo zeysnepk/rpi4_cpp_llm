@@ -6,6 +6,21 @@
 
 using json = nlohmann::json;
 
+// Exception-safe numeric parsing — regex can capture values too large for int/double
+// (e.g. "99999999999"); std::stoi/stod would throw out_of_range and crash the request.
+static int safe_stoi(const std::string& s, int def = 0) {
+    try { return std::stoi(s); } catch (...) { return def; }
+}
+static double safe_stod(const std::string& s, double def = 0.0) {
+    try { return std::stod(s); } catch (...) { return def; }
+}
+
+// "set" as a standalone word — avoids matching "reset", "sunset", "preset", "settings".
+static bool has_set_kw(const std::string& norm) {
+    static const std::regex re(R"(\bset\b)", std::regex_constants::icase);
+    return std::regex_search(norm, re);
+}
+
 // ============================================================
 // Turkish character normalization + lowercase
 // ============================================================
@@ -45,8 +60,13 @@ static std::string normalize(const std::string& s) {
 // Sensor adi tespiti
 // ============================================================
 static std::string detect_sensor(const std::string& norm) {
-    if (norm.find("bme")      != std::string::npos ||
-        norm.find("temp")     != std::string::npos ||
+    // Explicit model names win over semantic keywords, so "mpu temperature"
+    // resolves to mpu6050 instead of bme280 (which a bare "temp" would force).
+    if (norm.find("bme") != std::string::npos) return "bme280";
+    if (norm.find("mpu") != std::string::npos) return "mpu6050";
+    if (norm.find("qmc") != std::string::npos) return "qmc5883l";
+
+    if (norm.find("temp")     != std::string::npos ||
         norm.find("humid")    != std::string::npos ||
         norm.find("press")    != std::string::npos ||
         norm.find("room")     != std::string::npos ||
@@ -56,8 +76,7 @@ static std::string detect_sensor(const std::string& norm) {
         norm.find("baromet")  != std::string::npos) {
         return "bme280";
     }
-    if (norm.find("mpu")      != std::string::npos ||
-        norm.find("accel")    != std::string::npos ||
+    if (norm.find("accel")    != std::string::npos ||
         norm.find("gyro")     != std::string::npos ||
         norm.find("vibrat")   != std::string::npos ||
         norm.find("motion")   != std::string::npos ||
@@ -66,8 +85,7 @@ static std::string detect_sensor(const std::string& norm) {
         norm.find("rotation") != std::string::npos) {
         return "mpu6050";
     }
-    if (norm.find("qmc")       != std::string::npos ||
-        norm.find("magnetic")  != std::string::npos ||
+    if (norm.find("magnetic")  != std::string::npos ||
         norm.find("magnet")    != std::string::npos ||
         norm.find("heading")   != std::string::npos ||
         norm.find("compass")   != std::string::npos ||
@@ -96,6 +114,7 @@ static std::string detect_metric(const std::string& norm, const std::string& sen
         return "temperature_c";
     }
     if (sensor == "mpu6050") {
+        if (norm.find("temp") != std::string::npos) return "temp_c";
         bool is_gyro = (norm.find("gyro")    != std::string::npos ||
                         norm.find("angular") != std::string::npos ||
                         norm.find("rotation") != std::string::npos);
@@ -148,7 +167,7 @@ IntentRouter::Intent IntentRouter::parse(const std::string& msg_tr,
             "list.*threshold|show.*threshold|list.*limit|show.*limit|"
             "show.*parameter|what.*parameter|which.*parameter|"
             "all.*setting|current.*config|print.*config|what.*setting|"
-            "just.*it|is.*that.*all|that.*all|is.*everything|anything.*more.*change",
+            "is\\s+that\\s+all|that.?s\\s+all|that\\s+everything|anything.*more.*chang",
             std::regex_constants::icase);
         if (std::regex_search(norm, re)) {
             return {true, "get_config", json::object(), msg_tr};
@@ -174,13 +193,17 @@ IntentRouter::Intent IntentRouter::parse(const std::string& msg_tr,
             std::regex_constants::icase);
         bool is_threshold = std::regex_search(norm, thr_verb_re) || (want_max || want_min);
 
-        // Numeric value
+        // Numeric value — strip sensor model numbers (bme280, mpu6050…) first, so
+        // "set bme280 temperature max 30" reads 30 as the value, not 280.
+        static const std::regex model_re(R"(bme280|mpu6500|mpu6050|qmc5883l?)",
+                                          std::regex_constants::icase);
+        std::string norm_vals = std::regex_replace(norm, model_re, " ");
         static const std::regex val_re(R"((-?\d+(?:\.\d+)?))");
         std::smatch val_m;
 
-        if (norm.find("set") != std::string::npos &&
-            is_threshold && std::regex_search(norm, val_m, val_re)) {
-            double val = std::stod(val_m[1].str());
+        if (has_set_kw(norm) &&
+            is_threshold && std::regex_search(norm_vals, val_m, val_re)) {
+            double val = safe_stod(val_m[1].str());
 
             // Metric detection for thresholds (broader matching)
             std::string metric_key;
@@ -239,7 +262,7 @@ IntentRouter::Intent IntentRouter::parse(const std::string& msg_tr,
         bool want_disable = std::regex_search(norm, disable_re);
         bool want_enable  = std::regex_search(norm, enable_re);
 
-        if ((want_disable || want_enable) && norm.find("set") != std::string::npos) {
+        if ((want_disable || want_enable) && has_set_kw(norm)) {
             std::string sensor_en;
             if (norm.find("bme") != std::string::npos)       sensor_en = "bme280";
             else if (norm.find("mpu") != std::string::npos)  sensor_en = "mpu6050";
@@ -262,10 +285,10 @@ IntentRouter::Intent IntentRouter::parse(const std::string& msg_tr,
             R"(hz|hertz|frequency|sampling|sample.?rate)",
             std::regex_constants::icase);
         std::smatch m;
-        if (norm.find("set") != std::string::npos &&
+        if (has_set_kw(norm) &&
             std::regex_search(norm, m, re) && std::regex_search(norm, rate_kw_re)) {
             std::string raw = m[1].str();
-            int hz = std::stoi(m[2].str());
+            int hz = safe_stoi(m[2].str());
             std::string sensor;
             if (raw.find("bme") != std::string::npos) sensor = "bme280";
             else if (raw.find("mpu") != std::string::npos) sensor = "mpu6050";
@@ -279,8 +302,8 @@ IntentRouter::Intent IntentRouter::parse(const std::string& msg_tr,
     {
         static const std::regex re(R"((\d+)\s*h(?:z|ertz))", std::regex_constants::icase);
         std::smatch m;
-        if (norm.find("set") != std::string::npos && std::regex_search(norm, m, re)) {
-            int hz = std::stoi(m[1].str());
+        if (has_set_kw(norm) && std::regex_search(norm, m, re)) {
+            int hz = safe_stoi(m[1].str());
             std::string sensor = last_sensor_hint.empty() ? "bme280" : last_sensor_hint;
             return {true, "set_sample_rate",
                     {{"sensor", sensor}, {"hz", hz}}, msg_tr};
@@ -295,7 +318,8 @@ IntentRouter::Intent IntentRouter::parse(const std::string& msg_tr,
             std::regex_constants::icase);
         std::smatch m;
         if (std::regex_search(norm, m, re)) {
-            int count = std::stoi(m[1].str());
+            int count = safe_stoi(m[1].str(), 10);
+            if (count < 1)   count = 1;
             if (count > 100) count = 100;
 
             bool want_all = norm.find("all")   != std::string::npos ||
@@ -322,7 +346,7 @@ IntentRouter::Intent IntentRouter::parse(const std::string& msg_tr,
                       std::regex_constants::icase);
         std::smatch m;
         if (std::regex_search(norm, m, re)) {
-            int n = std::stoi(m[1].str());
+            int n = safe_stoi(m[1].str(), 60);
             std::string unit = m[2].str();
             int seconds = n;
             if (unit.rfind("min", 0) == 0) seconds = n * 60;
