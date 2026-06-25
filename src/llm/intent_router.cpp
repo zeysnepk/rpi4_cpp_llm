@@ -310,6 +310,36 @@ IntentRouter::Intent IntentRouter::parse(const std::string& msg_tr,
         }
     }
 
+    // ----- 0d. UNPARSED COMMAND ATTEMPT -> ask the user to rephrase -----
+    // If the message looks like a settings command but none of the set_* branches
+    // above could parse it (typo like "et humidity max 70", missing "set", missing
+    // value, garbled verb like "disenabled"), don't silently fall through to a data
+    // query — return a "clarify" intent so the dashboard can say it didn't understand.
+    {
+        static const std::regex enable_verb_re(
+            R"(\bdisabled?\b|\benabled?\b|\bdeactivate\b|\bactivate\b|turn\s*(?:off|on))",
+            std::regex_constants::icase);
+        static const std::regex thr_rate_kw_re(
+            R"(\bthreshold\b|\blimit\b|\bmax\b|\bmin\b|\bupper\b|\blower\b|\bceiling\b|\bfloor\b|sample\s*rate|\bhz\b|hertz|frequency)",
+            std::regex_constants::icase);
+        static const std::regex value_re2(R"(-?\d+(?:\.\d+)?)");
+        // Leading question/request words mean it's a query, not a command attempt.
+        static const std::regex question_re(
+            R"(^\s*(?:is|are|was|were|what|which|how|does|do|did|can|could|should|would|why|when|where|tell|show|give|list)\b)",
+            std::regex_constants::icase);
+
+        bool is_question = std::regex_search(norm, question_re);
+        bool cmd_attempt =
+            has_set_kw(norm) ||
+            std::regex_search(norm, enable_verb_re) ||
+            (std::regex_search(norm, thr_rate_kw_re) &&
+             std::regex_search(norm, value_re2));
+
+        if (cmd_attempt && !is_question) {
+            return {true, "clarify", json::object(), msg_tr};
+        }
+    }
+
     // ----- 1c. GET HISTORY RAW (last N readings/values/samples) -----
     // Must come before HISTORY STATS to catch count-based queries first.
     {

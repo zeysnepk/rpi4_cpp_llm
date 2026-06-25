@@ -452,6 +452,22 @@ int main() {
 
                 // ── 3. Route via IntentRouter ─────────────────────────────────
                 auto intent = IntentRouter::parse(user_msg, last_sensor);
+
+                // Unparseable command attempt -> deterministic "didn't understand"
+                // reply (don't let the weak LLM hallucinate or run the wrong query).
+                if (intent.tool_name == "clarify") {
+                    send_event({{"type","content_delta"},
+                        {"text","I didn't quite understand that. Could you rephrase it? "
+                                "If you want to change a setting, start with \"set\" — for example: "
+                                "\"set bme temperature max 30\", \"set mpu sample rate 10 hz\", "
+                                "or \"set bme disabled\"."}});
+                    send_event({{"type","done"}});
+                    std::string d = "data: [DONE]\n\n";
+                    sink.write(d.data(), d.size());
+                    sink.done();
+                    return true;
+                }
+
                 if (force_tech || neg_type != 0 || force_conversational)
                     intent.is_tool = false;
 
